@@ -45,7 +45,13 @@ if [ -f server-input.txt ]; then
 		echo "Mongodb port is not set. Instance will not be started"
 		exit 1
 	fi
-	mongod --dbpath ./mongodb.template --port $port > /dev/null &
+	mongod --dbpath ./mongodb.template --port $port > /tmp/mongodb.$port.log &
+	while true
+        do
+	        if grep "waiting for connections on port $port" /tmp/mongodb.$port.log ; then
+			break;
+		fi
+        done
 else
 	echo "Expected - mongodb to be running at the port specified in server config"
 fi
