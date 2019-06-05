@@ -60,6 +60,7 @@ MT_interval = 100
 concurrency = 200
 rampup_rampdown = 10
 total_urls = 100
+clients_number = 1
 urllist= []
 memstat_interval = 3
 memlogfile = "memlog_file"
@@ -324,6 +325,7 @@ def main():
         global url_file
         global temp_log
         global total_urls
+        global clients_number
         global dbrecord_count
         global idurl_ratio
         global nameurl_ratio
@@ -398,6 +400,9 @@ def main():
 
           if "total_urls" in json_data["client_params"]:
             total_urls = json_data["client_params"]["total_urls"]
+
+          if "clients_number" in json_data["client_params"]:
+            clients_number = json_data["client_params"]["clients_number"]
 
           if "html" in json_data["client_params"]:
             use_html = json_data["client_params"]["html"]
@@ -566,6 +571,7 @@ def run_printenv(log):
 
   print >> log, "# concurrency    :"+ str(concurrency) +"  (Default value = 200)"
   print >> log, "#  URLs  :" +str(total_urls) +"  (Default value = 100)"
+  print >> log, "#  URLs  :" +str(clients_number) +"  (Default value = 1)"
   print >> log, "# Use HTML: %s (Default value = False)" % use_html
   if http_headers:
     print >> log, "# Extra HTTP headers:"
@@ -598,13 +604,18 @@ def get_data():
   # Output: None
   """
 
+  print("============================= get_data")
+
   #Populate database
   if not no_db:
+    print("============================= no_db")
     run_loaddb()
 
   if get_endpoints_urls:
+    print("============================= generate_urls_from_list")
     generate_urls_from_list()
   else:
+    print("============================= generate_urls_from_list")
     generate_urls_from_db()
 
   if multiple_instance:
@@ -615,6 +626,10 @@ def get_data():
 
 def generate_urls_from_list():
   urls_count = len(get_endpoints_urls)
+
+  if clients_number != 1:
+    raise NotImplementedError('There is no suppport in generate_urls_from_list for clients_number != 1')
+
   for ii in xrange(int(total_urls)):
     urls_idx = random.randint(0, urls_count - 1)
     urllist.append({
@@ -624,6 +639,7 @@ def generate_urls_from_list():
   print "[%s] Building list of Urls done." % util.get_current_time()
 
 def generate_urls_from_db():
+  global arr_employee_idlist
   global employee_idlist
 
   print ("[%s] Build list of employee IDs." % (util.get_current_time()))
@@ -659,8 +675,7 @@ def generate_urls_from_db():
     print "Exception -- IDs or names or zipcodes not returned.Make sure application server is up and running.\n Make sure Database Server is up and running and \n Make sure client can communicate with server"
     sys.exit(1)
 
-  eidlist = re.findall(r'"([^"]*)"', ids)
-  employee_idlist.extend(eidlist)
+  employee_idlist = re.findall(r'"([^"]*)"', ids)
   name_matches = re.findall(r'"([^"]*)"', names)
   s = zipcode.strip("\"[]\"")
   zip_matches = s.split(',')
@@ -682,6 +697,21 @@ def generate_urls_from_db():
   zip_number = int(math.ceil((int(get_urlcount)*float(float(zipurl_ratio)/100))))
 
   #start building the url list
+  u = employee_idlist
+
+  employee_id_np_array = np.array(employee_idlist)
+  arr_employee_id_list_np_array = np.array_split(employee_id_np_array, clients_number)
+  arr_employee_idlist = [el.tolist() for el in arr_employee_id_list_np_array]
+  employee_idlist = []
+  employee_idlist = [y for x in arr_employee_idlist for y in x]
+
+  sd = set(u).symmetric_difference(set(employee_idlist))
+
+  if len(sd) == 0:
+    print("======================= size 0")
+  else:
+    print("======================= size different than 0")
+
   builddburllist(employee_idlist, id_number, name_matches, name_number , zip_matches, zip_number, post_urlcount,delete_urlcount)
 
 def run_loaddb():
