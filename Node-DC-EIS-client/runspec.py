@@ -974,6 +974,20 @@ def collect_meminfo():
     heapTotlist.append(0)
   return
 
+def do_work(idx_process):
+  print("==========================do_work(idx_process) = ", idx_process)
+
+  # Create a pool with input concurrency
+  pool = eventlet.GreenPool(int(concurrency))
+
+  ## Start time based run
+  if run_mode == 1:
+    timebased_run(pool)
+  ## Start requests based run
+  else:
+    requestBasedRun(pool)
+
+
 def send_request():
   """
   # Desc  : Main function initiates requests to server
@@ -1010,15 +1024,13 @@ def send_request():
   mem_process = Process(target = collect_meminfo)
   mem_process.start()
 
-  # Create a pool with input concurrency
-  pool = eventlet.GreenPool(int(concurrency))
+  worker_process = []
+  for idx_process in range(0, clients_number):
+    worker_process += [Process(target=do_work, args=(idx_process,))]
+    worker_process[idx_process].start()
 
-  ## Start time based run
-  if run_mode == 1:
-    timebased_run(pool)
-  ## Start requests based run
-  else:
-    requestBasedRun(pool)
+  for idx_process in range(0, clients_number):
+    worker_process[idx_process].join()
 
   mem_process.join()
   if not no_db:
@@ -1115,8 +1127,6 @@ def timebased_run(pool):
   global temp_log
   global output_file
   global processing_complete
-  url_index = 0
-  request_index = 0 # Initializing the Request Counter to 0
 
   queue = Queue()
 
@@ -1197,7 +1207,6 @@ def requestBasedRun(pool):
   print ("[%s] Starting request based run." % (util.get_current_time()))
   print ("[%s] Requests:[%d], Concurrency:[%d]" % (util.get_current_time(), int(request), int(concurrency)))
 
-  url_index = 0
   if ramp:
     loop = int(request)+(2*int(rampup_rampdown))
   else:

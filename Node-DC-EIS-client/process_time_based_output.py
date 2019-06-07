@@ -96,6 +96,9 @@ def process_data(temp_file,temp_log,results_dir,file_cnt,interval):
     RUreq = 0
     MTreq = 0
     RDreq = 0
+
+    print("temp_file = ", temp_file)
+
     csvReader = csv.reader(temp_file) 
     sortedlist = sorted(csvReader, key=lambda row: int(row[1]))
     for row in sortedlist:
