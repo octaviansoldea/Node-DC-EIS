@@ -62,6 +62,7 @@ rampup_rampdown = 10
 total_urls = 100
 clients_number = 1
 urllist= []
+list_urllist = []
 memstat_interval = 3
 memlogfile = "memlog_file"
 no_graph = False #if set to True, output graphs will not be generated.
@@ -618,6 +619,8 @@ def get_data():
     print("============================= generate_urls_from_list")
     generate_urls_from_db()
 
+  list_urllist = split_in_quasi_equal_lists(urllist, clients_number)
+
   if multiple_instance:
     util.create_indicator_file(rundir,"loaddb_done", instance_id,"")
     util.check_startfile(rundir)
@@ -628,7 +631,7 @@ def generate_urls_from_list():
   urls_count = len(get_endpoints_urls)
 
   if clients_number != 1:
-    raise NotImplementedError('There is no suppport in generate_urls_from_list for clients_number != 1')
+    raise NotImplementedError('There is no support in generate_urls_from_list for clients_number != 1')
 
   for ii in xrange(int(total_urls)):
     urls_idx = random.randint(0, urls_count - 1)
@@ -638,8 +641,15 @@ def generate_urls_from_list():
 
   print "[%s] Building list of Urls done." % util.get_current_time()
 
+def split_in_quasi_equal_lists(list_input, parts_number):
+  list_array = np.array(list_input)
+  list_array_split = np.array_split(list_array, parts_number)
+  list_output = [el.tolist() for el in list_array_split]
+
+  return list_output
+
 def generate_urls_from_db():
-  global arr_employee_idlist
+  global list_employee_idlist
   global employee_idlist
 
   print ("[%s] Build list of employee IDs." % (util.get_current_time()))
@@ -699,11 +709,11 @@ def generate_urls_from_db():
   #start building the url list
   u = employee_idlist
 
-  employee_id_np_array = np.array(employee_idlist)
-  arr_employee_id_list_np_array = np.array_split(employee_id_np_array, clients_number)
-  arr_employee_idlist = [el.tolist() for el in arr_employee_id_list_np_array]
+  list_employee_idlist =\
+    split_in_quasi_equal_lists(employee_idlist, clients_number);
+
   employee_idlist = []
-  employee_idlist = [y for x in arr_employee_idlist for y in x]
+  employee_idlist = [y for x in list_employee_idlist for y in x]
 
   sd = set(u).symmetric_difference(set(employee_idlist))
 
@@ -712,7 +722,7 @@ def generate_urls_from_db():
   else:
     print("======================= size different than 0")
 
-  builddburllist(employee_idlist, id_number, name_matches, name_number , zip_matches, zip_number, post_urlcount,delete_urlcount)
+  builddburllist(id_number, name_matches, name_number, zip_matches, zip_number, post_urlcount, delete_urlcount)
 
 def run_loaddb():
   """
@@ -726,6 +736,8 @@ def run_loaddb():
   loaddbparams = {'count': int(dbrecord_count), 'zipcode': int(zip_dbratio), 'lastname' : int(name_dbratio) }
   try:
     res = requests.get(loaddb_url, params=loaddbparams, timeout=300)
+    import curlify
+    print("[", curlify.to_curl(res.request), "]")
   except requests.exceptions.RequestException as e:
     #catastrophic error. bail.
     print("[%s] Loading database failed. Exiting" % (util.get_current_time()))
@@ -773,7 +785,7 @@ def check_db():
 
   return checkdb_dict
 
-def builddburllist(employee_idlist, id_number, name_matches, name_number, zip_matches, zip_number,post_urlcount, delete_urlcount):
+def builddburllist(id_number, name_matches, name_number, zip_matches, zip_number,post_urlcount, delete_urlcount):
   """
   # Desc  :Function build list of URLs with enough randomness for realistic
   #        behavior
@@ -790,10 +802,8 @@ def builddburllist(employee_idlist, id_number, name_matches, name_number, zip_ma
   global delete_count
 
   while(True):
-      random_id = random.randint(0,len(employee_idlist)-1)
       random_name = random.randint(0,len(name_matches)-1)
       random_zip = random.randint(0,len(zip_matches)-1)
-      random_delete = random.randint(0,delete_urlcount)
 
       if(id_count < id_number):
         urls = server_url + "employees/id/"
@@ -977,9 +987,6 @@ def send_request():
   global temp_log
   global output_file
 
-  #Create a pool with input concurrency
-  pool = eventlet.GreenPool(int(concurrency))
-
   print ("[%s] Creating temporary log file" % (util.get_current_time()))
   if(rundir):
     log_dir = os.path.join(rundir,os.path.join(results_dir,directory))
@@ -1002,6 +1009,9 @@ def send_request():
   log.flush()
   mem_process = Process(target = collect_meminfo)
   mem_process.start()
+
+  # Create a pool with input concurrency
+  pool = eventlet.GreenPool(int(concurrency))
 
   ## Start time based run
   if run_mode == 1:
@@ -1026,10 +1036,7 @@ def execute_request(pool, queue=None):
     # Input : threadpool with concurrency number of threads
     # Output: Generates per request details in a templog file
     """
-    global after_run
     global phase
-    global MT_interval
-    global rampup_rampdown
     global tot_get
     global tot_post
     global tot_del
@@ -1096,7 +1103,6 @@ def timebased_run(pool):
   # Input : threadpool with concurrency number of threads
   # Output: Generates per request details in a templog file
   """
-  global after_run
   global phase
   global MT_interval
   global rampup_rampdown
@@ -1178,6 +1184,10 @@ def requestBasedRun(pool):
   # Input : threadpool with concurrency number of threads
   # Output: Generates per request details in a templog file
   """
+
+  if clients_number != 1:
+    raise NotImplementedError('There is no support in requestBasedRun for clients_number != 1')
+
   global tot_get
   global tot_post
   global tot_del

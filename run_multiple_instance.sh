@@ -631,7 +631,7 @@ start_clients(){
     echo "================================== 0: temp_clientdir=$temp_clientdir"
     if $no_graph ; then
       echo "================================== 1: client_config_file = ${client_config_file} no_graph=$no_graph i = $i run_dir = $run_dir logfile = $logfile"
-      #exit
+      exit
       python -u runspec.py -f "${client_config_file}" -m -id "$i" -dir "$run_dir" --nograph >> "$logfile" 2>&1 &
     else
       echo "================================== 2: client_config_file = ${client_config_file} no_graph=$no_graph i = $i run_dir = $run_dir logfile = $logfile"
