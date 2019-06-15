@@ -909,12 +909,10 @@ def removeEmployeeId(ids):
   # Input : input employeeid and global list
   # Output: None
   """
-  id_found = False
   global employee_idlist
   if len(employee_idlist) > 0:
     if ids in employee_idlist:
       employee_idlist.remove(ids)
-      id_found = True
     else:
       print "Id not found. Aborting"
       sys.exit(1)
@@ -938,6 +936,10 @@ def collect_meminfo():
   while True:
     if os.path.exists(os.path.join(log_dir,memlogind)):
       print ""
+      print("========================log_dir = ", log_dir)
+      print("========================memlogind = ", memlogind)
+      print("========================os.path.join(log_dir,memlogind) = ", os.path.join(log_dir,memlogind))
+      print("========================os.path.join(log_dir,memlogfile) = ", os.path.join(log_dir, memlogfile))
       os.remove(os.path.join(log_dir,memlogind))
       elapsed_time = time.time() - start_time
       with open(os.path.join(log_dir,memlogfile+".csv"), 'wb') as f:
@@ -1024,6 +1026,9 @@ def send_request():
   mem_process = Process(target = collect_meminfo)
   mem_process.start()
 
+  do_work(0)
+
+  """
   worker_process = []
   for idx_process in range(0, clients_number):
     worker_process += [Process(target=do_work, args=(idx_process,))]
@@ -1031,6 +1036,7 @@ def send_request():
 
   for idx_process in range(0, clients_number):
     worker_process[idx_process].join()
+  """
 
   mem_process.join()
   if not no_db:
