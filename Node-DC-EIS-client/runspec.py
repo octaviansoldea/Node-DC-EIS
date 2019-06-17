@@ -1036,17 +1036,15 @@ def send_request():
   mem_process = Process(target = collect_meminfo, args=(lock_memlogind, memlogind_counter))
   mem_process.start()
 
-  #do_work(0, lock_memlogind, memlogind_counter)
+  do_work(0, lock_memlogind, memlogind_counter)
 
+  #worker_process = []
+  #for idx_process in range(0, clients_number):
+  #  worker_process += [Process(target=do_work, args=(idx_process, lock_memlogind, memlogind_counter))]
+  #  worker_process[idx_process].start()
 
-  worker_process = []
-  for idx_process in range(0, clients_number):
-    worker_process += [Process(target=do_work, args=(idx_process, lock_memlogind, memlogind_counter))]
-    worker_process[idx_process].start()
-
-  for idx_process in range(0, clients_number):
-    worker_process[idx_process].join()
-  
+  #for idx_process in range(0, clients_number):
+  #  worker_process[idx_process].join()
 
   mem_process.join()
   if not no_db:
