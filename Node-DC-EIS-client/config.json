@@ -11,7 +11,7 @@
     "total_urls":"200",
     "clients_number": 1,
     "server_ipaddress":"localhost",
-    "server_port":"9000",
+    "server_port":"9001",
     "root_endpoint": "/",
     "nameurl_count":"25", 
     "zipurl_count":"25",

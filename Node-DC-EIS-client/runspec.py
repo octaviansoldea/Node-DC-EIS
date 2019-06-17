@@ -193,7 +193,6 @@ def setup():
   print "Starting "+version + " in "+appName + " Mode"
   if(instance_id):
     directory = directory+"-"+appName+"-"+instance_id
-    memlogind = memlogind+"-"+instance_id
   else:
     directory = directory+"-"+appName
   if(rundir):
@@ -982,19 +981,6 @@ def collect_meminfo(lock_memlogind, memlogind_counter):
     heapTotlist.append(0)
   return
 
-def do_work(idx_process, lock_memlogind, memlogind_counter):
-  print("==========================do_work(idx_process) = ", idx_process)
-
-  # Create a pool with input concurrency
-  pool = eventlet.GreenPool(int(concurrency))
-
-  ## Start time based run
-  if run_mode == 1:
-    timebased_run(pool, lock_memlogind, memlogind_counter)
-  ## Start requests based run
-  else:
-    requestBasedRun(pool, lock_memlogind, memlogind_counter)
-
 
 def send_request():
   """
@@ -1036,15 +1022,12 @@ def send_request():
   mem_process = Process(target = collect_meminfo, args=(lock_memlogind, memlogind_counter))
   mem_process.start()
 
-  do_work(0, lock_memlogind, memlogind_counter)
-
-  #worker_process = []
-  #for idx_process in range(0, clients_number):
-  #  worker_process += [Process(target=do_work, args=(idx_process, lock_memlogind, memlogind_counter))]
-  #  worker_process[idx_process].start()
-
-  #for idx_process in range(0, clients_number):
-  #  worker_process[idx_process].join()
+  ## Start time based run
+  if run_mode == 1:
+    timebased_run(lock_memlogind, memlogind_counter)
+  ## Start requests based run
+  else:
+    requestBasedRun(lock_memlogind, memlogind_counter)
 
   mem_process.join()
   if not no_db:
@@ -1119,7 +1102,7 @@ def execute_request(pool, queue=None):
 execute_request.request_index = 1
 execute_request.url_index = 0
 
-def timebased_run(pool, lock_memlogind, memlogind_counter):
+def timebased_run(lock_memlogind, memlogind_counter):
   """
   # Desc  : Function to start time based run
   #         Uses threadpool for concurrency, and sends concurrent requests
@@ -1142,7 +1125,19 @@ def timebased_run(pool, lock_memlogind, memlogind_counter):
   global output_file
   global processing_complete
 
+  # Create a pool with input concurrency
+  pool = eventlet.GreenPool(int(concurrency))
+
   queue = Queue()
+
+  #worker_process = []
+  #for idx_process in range(0, clients_number):
+  #  worker_process += [Process(target=do_work, args=(idx_process, lock_memlogind, memlogind_counter))]
+  #  worker_process[idx_process].start()
+
+  #for idx_process in range(0, clients_number):
+  #  worker_process[idx_process].join()
+
 
   #Spin Another Process to do processing of Data
   post_processing = Process(target=process_time_based_output,
@@ -1200,7 +1195,7 @@ def timebased_run(pool, lock_memlogind, memlogind_counter):
   queue.put(('EXIT',))
   post_processing.join()
 
-def requestBasedRun(pool, lock_memlogind, memlogind_counter):
+def requestBasedRun(lock_memlogind, memlogind_counter):
   """
   # Desc  : Function to start Requests based run
   #         Creates threadpool for concurrency, and sends concurrent requests
@@ -1210,6 +1205,9 @@ def requestBasedRun(pool, lock_memlogind, memlogind_counter):
   # Input : threadpool with concurrency number of threads
   # Output: Generates per request details in a templog file
   """
+
+  # Create a pool with input concurrency
+  pool = eventlet.GreenPool(int(concurrency))
 
   global clients_number
   if clients_number != 1:
