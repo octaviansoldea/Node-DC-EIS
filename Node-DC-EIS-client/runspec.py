@@ -1101,6 +1101,45 @@ def execute_request(pool, queue=None):
 execute_request.request_index = 1
 execute_request.url_index = 0
 
+def do_work_time_based(idx_process, start, ramp, pool, queue):
+  if ramp:
+          while(time.time()-start < int(rampup_rampdown)):
+              execute_request(pool, queue)
+
+          if idx_process == 0:
+            print ("[%s] Exiting RampUp time window." %(util.get_current_time()))
+            phase = "MT"
+            util.record_start_time()
+            start=time.time()
+            print ("[%s] Entering Measuring time window." %(util.get_current_time()))
+
+          while(time.time()-start < int(MT_interval)):
+              execute_request(pool, queue)
+
+          if idx_process == 0:
+            print ("[%s] Exiting Measuring time window." %(util.get_current_time()))
+            util.record_end_time()
+            phase = "RD"
+            util.calculate_throughput(log_dir,concurrency,cpuCount)
+            start=time.time()
+            print ("[%s] Entering RampDown time window." %(util.get_current_time()))
+
+          while(time.time()-start < int(rampup_rampdown)):
+              execute_request(pool, queue)
+
+          if idx_process == 0:
+            print ("[%s] Exiting RampDown time window." %(util.get_current_time()))
+            phase = "SD"
+            print ("[%s] Entering ShutDown time window." %(util.get_current_time()))
+  else:
+          while(time.time()-start < int(MT_interval)):
+              execute_request(pool, queue)
+
+          if idx_process == 0:
+            print ("[%s] Exiting Measuring time window." %(util.get_current_time()))
+            phase = "SD"
+            print ("[%s] Entering ShutDown time window." %(util.get_current_time()))
+
 def timebased_run(lock_memlogind, memlogind_counter):
   """
   # Desc  : Function to start time based run
@@ -1123,8 +1162,11 @@ def timebased_run(lock_memlogind, memlogind_counter):
   global temp_log
   global output_file
 
-  # Create a pool with input concurrency
-  pool = eventlet.GreenPool(int(concurrency))
+  # Create pools with input concurrency
+  list_pool = []
+  for idx_process in range(0, clients_number):
+    pool = eventlet.GreenPool(int(concurrency))
+    list_pool.append(pool)
 
   queue = Queue()
 
@@ -1136,15 +1178,7 @@ def timebased_run(lock_memlogind, memlogind_counter):
                                   no_graph, queue, concurrency))
   post_processing.start()
 
-  """
-  worker_process = []
-  for idx_process in range(0, clients_number):
-    worker_process += [Process(target=do_time_based_work, args=(idx_process, lock_memlogind, memlogind_counter))]
-    worker_process[idx_process].start()
-
-  for idx_process in range(0, clients_number):
-    worker_process[idx_process].join()
-  """
+  start = Value('d', 0.0)
 
   print ("[%s] Starting time based run." % (util.get_current_time()))
   if ramp:
@@ -1157,33 +1191,18 @@ def timebased_run(lock_memlogind, memlogind_counter):
     print("Entering Measuring time window : [%s]" % (util.get_current_time()))
     util.record_start_time()
   print ("[%s] Started processing of requests with concurrency of [%d] for [%d] seconds" % (util.get_current_time(), int(concurrency), int(MT_interval)))
-  if ramp:
-          while(time.time()-start < int(rampup_rampdown)):
-              execute_request(pool, queue)
-          print ("[%s] Exiting RampUp time window." %(util.get_current_time()))
-          phase = "MT"
-          util.record_start_time()
-          start=time.time()
-          print ("[%s] Entering Measuring time window." %(util.get_current_time()))
-          while(time.time()-start < int(MT_interval)):
-              execute_request(pool, queue)
-          print ("[%s] Exiting Measuring time window." %(util.get_current_time()))
-          util.record_end_time()
-          phase = "RD"
-          util.calculate_throughput(log_dir,concurrency,cpuCount)
-          start=time.time()
-          print ("[%s] Entering RampDown time window." %(util.get_current_time()))
-          while(time.time()-start < int(rampup_rampdown)):
-              execute_request(pool, queue)
-          print ("[%s] Exiting RampDown time window." %(util.get_current_time()))
-          phase = "SD"
-          print ("[%s] Entering ShutDown time window." %(util.get_current_time()))
-  else:
-          while(time.time()-start < int(MT_interval)):
-              execute_request(pool, queue)
-          print ("[%s] Exiting Measuring time window." %(util.get_current_time()))
-          phase = "SD"
-          print ("[%s] Entering ShutDown time window." %(util.get_current_time()))
+
+  """
+  worker_process = []
+  for idx_process in range(0, clients_number):
+    worker_process += [Process(target=do_work_time_based, args=(idx_process, start, ramp, list_pool[idx_process], queue))]
+    worker_process[idx_process].start()
+
+  for idx_process in range(0, clients_number):
+    worker_process[idx_process].join()
+  """
+  do_work_time_based(0, start, ramp, list_pool[idx_process], queue)
+
   print("[%s] All requests done." % (util.get_current_time()))
 
   lock_memlogind.acquire()
