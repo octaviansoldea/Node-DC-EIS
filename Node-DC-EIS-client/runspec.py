@@ -1128,15 +1128,6 @@ def timebased_run(lock_memlogind, memlogind_counter):
 
   queue = Queue()
 
-  #worker_process = []
-  #for idx_process in range(0, clients_number):
-  #  worker_process += [Process(target=do_work, args=(idx_process, lock_memlogind, memlogind_counter))]
-  #  worker_process[idx_process].start()
-
-  #for idx_process in range(0, clients_number):
-  #  worker_process[idx_process].join()
-
-
   #Spin Another Process to do processing of Data
   post_processing = Process(target=process_time_based_output,
                             args=(log_dir, interval, rampup_rampdown,
@@ -1144,6 +1135,17 @@ def timebased_run(lock_memlogind, memlogind_counter):
                                   memlogfile, instance_id, multiple_instance,
                                   no_graph, queue, concurrency))
   post_processing.start()
+
+  """
+  worker_process = []
+  for idx_process in range(0, clients_number):
+    worker_process += [Process(target=do_time_based_work, args=(idx_process, lock_memlogind, memlogind_counter))]
+    worker_process[idx_process].start()
+
+  for idx_process in range(0, clients_number):
+    worker_process[idx_process].join()
+  """
+
   print ("[%s] Starting time based run." % (util.get_current_time()))
   if ramp:
     phase = "RU"
