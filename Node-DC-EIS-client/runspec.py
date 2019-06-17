@@ -81,7 +81,6 @@ phase = "MT"
 log =""
 log_dir =""
 interval = 10
-processing_complete = False
 instance_id = 0
 rundir = ""
 multiple_instance = False
@@ -1123,7 +1122,6 @@ def timebased_run(lock_memlogind, memlogind_counter):
   global interval
   global temp_log
   global output_file
-  global processing_complete
 
   # Create a pool with input concurrency
   pool = eventlet.GreenPool(int(concurrency))
@@ -1191,7 +1189,6 @@ def timebased_run(lock_memlogind, memlogind_counter):
   lock_memlogind.release()
   pool.waitall()
   node_dc_eis_testurls.clean_up_log(queue)
-  processing_complete = True
   queue.put(('EXIT',))
   post_processing.join()
 
