@@ -1102,43 +1102,52 @@ execute_request.request_index = 1
 execute_request.url_index = 0
 
 def do_work_time_based(idx_process, start, ramp, pool, queue):
+  global phase
+  global MT_interval
+  global rampup_rampdown
+  global log_dir
+  global output_file
+
   if ramp:
-          while(time.time()-start < int(rampup_rampdown)):
-              execute_request(pool, queue)
 
-          if idx_process == 0:
-            print ("[%s] Exiting RampUp time window." %(util.get_current_time()))
-            phase = "MT"
-            util.record_start_time()
-            start=time.time()
-            print ("[%s] Entering Measuring time window." %(util.get_current_time()))
+    while(time.time()-start.value < int(rampup_rampdown)):
+        execute_request(pool, queue)
 
-          while(time.time()-start < int(MT_interval)):
-              execute_request(pool, queue)
+    if idx_process == 0:
+      print ("[%s] Exiting RampUp time window." %(util.get_current_time()))
+      phase = "MT"
+      util.record_start_time()
+      start.value=time.time()
+      print ("[%s] Entering Measuring time window." %(util.get_current_time()))
 
-          if idx_process == 0:
-            print ("[%s] Exiting Measuring time window." %(util.get_current_time()))
-            util.record_end_time()
-            phase = "RD"
-            util.calculate_throughput(log_dir,concurrency,cpuCount)
-            start=time.time()
-            print ("[%s] Entering RampDown time window." %(util.get_current_time()))
+    while(time.time()-start.value < int(MT_interval)):
+        execute_request(pool, queue)
 
-          while(time.time()-start < int(rampup_rampdown)):
-              execute_request(pool, queue)
+    if idx_process == 0:
+      print ("[%s] Exiting Measuring time window." %(util.get_current_time()))
+      util.record_end_time()
+      phase = "RD"
+      util.calculate_throughput(log_dir,concurrency,cpuCount)
+      start.value=time.time()
+      print ("[%s] Entering RampDown time window." %(util.get_current_time()))
 
-          if idx_process == 0:
-            print ("[%s] Exiting RampDown time window." %(util.get_current_time()))
-            phase = "SD"
-            print ("[%s] Entering ShutDown time window." %(util.get_current_time()))
+    while(time.time()-start.value < int(rampup_rampdown)):
+        execute_request(pool, queue)
+
+    if idx_process == 0:
+      print ("[%s] Exiting RampDown time window." %(util.get_current_time()))
+      phase = "SD"
+      print ("[%s] Entering ShutDown time window." %(util.get_current_time()))
+
   else:
-          while(time.time()-start < int(MT_interval)):
-              execute_request(pool, queue)
 
-          if idx_process == 0:
-            print ("[%s] Exiting Measuring time window." %(util.get_current_time()))
-            phase = "SD"
-            print ("[%s] Entering ShutDown time window." %(util.get_current_time()))
+    while(time.time()-start.value < int(MT_interval)):
+        execute_request(pool, queue)
+
+    if idx_process == 0:
+      print ("[%s] Exiting Measuring time window." %(util.get_current_time()))
+      phase = "SD"
+      print ("[%s] Entering ShutDown time window." %(util.get_current_time()))
 
 def timebased_run(lock_memlogind, memlogind_counter):
   """
@@ -1153,9 +1162,6 @@ def timebased_run(lock_memlogind, memlogind_counter):
   global phase
   global MT_interval
   global rampup_rampdown
-  global tot_get
-  global tot_post
-  global tot_del
   global log
   global log_dir
   global interval
@@ -1183,11 +1189,11 @@ def timebased_run(lock_memlogind, memlogind_counter):
   print ("[%s] Starting time based run." % (util.get_current_time()))
   if ramp:
     phase = "RU"
-    start = time.time()
+    start.value = time.time()
     print("[%s] Entering RampUp time window." % (util.get_current_time()))
   else:
     phase = "MT"
-    start = time.time()
+    start.value = time.time()
     print("Entering Measuring time window : [%s]" % (util.get_current_time()))
     util.record_start_time()
   print ("[%s] Started processing of requests with concurrency of [%d] for [%d] seconds" % (util.get_current_time(), int(concurrency), int(MT_interval)))
