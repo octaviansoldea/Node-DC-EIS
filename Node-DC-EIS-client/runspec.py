@@ -1237,12 +1237,15 @@ def timebased_run(lock_memlogind, memlogind_counter):
   """
   worker_process = []
   for idx_process in range(0, clients_number):
-    worker_process += [Process(target=do_work_time_based, args=(idx_process, start, ramp, list_pool[idx_process], queue))]
+    worker_process +=\
+      [Process(target=do_work_time_based,
+               args=(idx_process, start, ramp, list_pool[idx_process], queue, dict_counters_mp))]
     worker_process[idx_process].start()
 
   for idx_process in range(0, clients_number):
     worker_process[idx_process].join()
   """
+
   do_work_time_based(0, start, ramp, list_pool[idx_process], queue, dict_counters_mp)
 
   print("[%s] All requests done." % (util.get_current_time()))

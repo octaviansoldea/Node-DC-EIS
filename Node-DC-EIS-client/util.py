@@ -100,17 +100,17 @@ def calculate_throughput(log_dir,concurrency,cpuCount):
   throughput = MT_req/(end_MT-start_MT)
   throughput = round(throughput,2)
   try:
-    log = open(os.path.join(log_dir,"throughput_info.txt"), "w")
+    fp_throughput = open(os.path.join(log_dir,"throughput_info.txt"), "w")
   except IOError as e:
     print("Error: %s File not found throughput_info.txt")
     return None
-  print >> log,"Concurrency is:"+str(concurrency)
-  print >> log,"Number of processess:"+str(cpuCount)
-  print >> log,"Measuring time window start time is:"+str(start_MT) 
-  print >> log,"Measuring time end time is:"+str(end_MT)
-  print >> log,"Elapsed time is:"+str(end_MT-start_MT)
-  print >> log,"Total measuring time requests:"+str(MT_req)
-  print >> log,"Throughput is:"+str(throughput)
-  log.close()
+  print >> fp_throughput,"Concurrency is:"+str(concurrency)
+  print >> fp_throughput,"Number of processess:"+str(cpuCount)
+  print >> fp_throughput,"Measuring time window start time is:"+str(start_MT)
+  print >> fp_throughput,"Measuring time end time is:"+str(end_MT)
+  print >> fp_throughput,"Elapsed time is:"+str(end_MT-start_MT)
+  print >> fp_throughput,"Total measuring time requests:"+str(MT_req)
+  print >> fp_throughput,"Throughput is:"+str(throughput)
+  fp_throughput.close()
 
   
