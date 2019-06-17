@@ -49,6 +49,7 @@ from process_time_based_output import process_time_based_output
 import traceback
 import urllib
 import util
+from multiprocessing import Process, Lock, Value
 
 """
 #  All globals
@@ -84,7 +85,6 @@ processing_complete = False
 instance_id = 0
 rundir = ""
 multiple_instance = False
-memlogind = "requestsdone.ind"
 cpuCount = -1
 run_mode = 1
 
@@ -166,7 +166,6 @@ def setup():
   global appName
   global cpuCount
   global directory
-  global memlogind
   try:
     r = requests.get(cpuinfo_url)
   except requests.exceptions.RequestException as e:
@@ -921,32 +920,39 @@ def removeEmployeeId(ids):
     sys.exit(1)
   return
 
-def collect_meminfo():
+def collect_meminfo(lock_memlogind, memlogind_counter):
   """
   # Desc  : Function to collect server memory usage stats by periodic server
   #         requests
   # Input : None.
   # Output: Collects data in dictionary, which will be process later.
   """
+
+  global clients_number
+
   rss_list =[]
   heapTotlist =[]
   heapUsedlist = []
   print ("[%s] Starting meminfo collection process " % (util.get_current_time()))
   start_time = time.time()
   while True:
-    if os.path.exists(os.path.join(log_dir,memlogind)):
-      print ""
+    lock_memlogind.acquire()
+
+    if memlogind_counter.value == clients_number:
+      print
+      ""
       print("========================log_dir = ", log_dir)
-      print("========================memlogind = ", memlogind)
-      print("========================os.path.join(log_dir,memlogind) = ", os.path.join(log_dir,memlogind))
       print("========================os.path.join(log_dir,memlogfile) = ", os.path.join(log_dir, memlogfile))
-      os.remove(os.path.join(log_dir,memlogind))
       elapsed_time = time.time() - start_time
-      with open(os.path.join(log_dir,memlogfile+".csv"), 'wb') as f:
+      with open(os.path.join(log_dir, memlogfile + ".csv"), 'wb') as f:
         writer = csv.writer(f)
-        writer.writerows(izip(list(range(0, int(elapsed_time), 1)),rss_list,heapTotlist,heapUsedlist))
-        print ("[%s] Exiting meminfo collection process" % (util.get_current_time()))
+        writer.writerows(izip(list(range(0, int(elapsed_time), 1)), rss_list, heapTotlist, heapUsedlist))
+        print("[%s] Exiting meminfo collection process" % (util.get_current_time()))
+        lock_memlogind.release()
         sys.exit(0)
+
+    lock_memlogind.release()
+
     try:
       r = requests.get(meminfo_url)
     except requests.exceptions.RequestException as e:
@@ -976,7 +982,7 @@ def collect_meminfo():
     heapTotlist.append(0)
   return
 
-def do_work(idx_process):
+def do_work(idx_process, lock_memlogind, memlogind_counter):
   print("==========================do_work(idx_process) = ", idx_process)
 
   # Create a pool with input concurrency
@@ -984,10 +990,10 @@ def do_work(idx_process):
 
   ## Start time based run
   if run_mode == 1:
-    timebased_run(pool)
+    timebased_run(pool, lock_memlogind, memlogind_counter)
   ## Start requests based run
   else:
-    requestBasedRun(pool)
+    requestBasedRun(pool, lock_memlogind, memlogind_counter)
 
 
 def send_request():
@@ -1023,20 +1029,24 @@ def send_request():
     print >> log, "Mode,Request_num,URL,StartTime,EndTime,Response_time"
 
   log.flush()
-  mem_process = Process(target = collect_meminfo)
+
+  lock_memlogind = Lock()
+  memlogind_counter = Value('i', 0)
+
+  mem_process = Process(target = collect_meminfo, args=(lock_memlogind, memlogind_counter))
   mem_process.start()
 
-  do_work(0)
+  #do_work(0, lock_memlogind, memlogind_counter)
 
-  """
+
   worker_process = []
   for idx_process in range(0, clients_number):
-    worker_process += [Process(target=do_work, args=(idx_process,))]
+    worker_process += [Process(target=do_work, args=(idx_process, lock_memlogind, memlogind_counter))]
     worker_process[idx_process].start()
 
   for idx_process in range(0, clients_number):
     worker_process[idx_process].join()
-  """
+  
 
   mem_process.join()
   if not no_db:
@@ -1111,7 +1121,7 @@ def execute_request(pool, queue=None):
 execute_request.request_index = 1
 execute_request.url_index = 0
 
-def timebased_run(pool):
+def timebased_run(pool, lock_memlogind, memlogind_counter):
   """
   # Desc  : Function to start time based run
   #         Uses threadpool for concurrency, and sends concurrent requests
@@ -1182,15 +1192,17 @@ def timebased_run(pool):
           phase = "SD"
           print ("[%s] Entering ShutDown time window." %(util.get_current_time()))
   print("[%s] All requests done." % (util.get_current_time()))
-  file = open(os.path.join(log_dir,memlogind),"w")
-  file.close()
+
+  lock_memlogind.acquire()
+  memlogind_counter.value += 1
+  lock_memlogind.release()
   pool.waitall()
   node_dc_eis_testurls.clean_up_log(queue)
   processing_complete = True
   queue.put(('EXIT',))
   post_processing.join()
 
-def requestBasedRun(pool):
+def requestBasedRun(pool, lock_memlogind, memlogind_counter):
   """
   # Desc  : Function to start Requests based run
   #         Creates threadpool for concurrency, and sends concurrent requests
@@ -1201,6 +1213,7 @@ def requestBasedRun(pool):
   # Output: Generates per request details in a templog file
   """
 
+  global clients_number
   if clients_number != 1:
     raise NotImplementedError('There is no support in requestBasedRun for clients_number != 1')
 
@@ -1230,8 +1243,9 @@ def requestBasedRun(pool):
           print "Exiting Measuring time window"
       execute_request(pool)
   #Wait for request threads to finish
-  file = open(os.path.join(log_dir,memlogind),"w")
-  file.close()
+  lock_memlogind.acquire()
+  memlogind_counter.value += 1
+  lock_memlogind.release()
   pool.waitall()
 
   print ("[%s] All requests done." % (util.get_current_time()))
