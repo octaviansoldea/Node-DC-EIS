@@ -1101,29 +1101,45 @@ def execute_request(pool, queue=None):
 execute_request.request_index = 1
 execute_request.url_index = 0
 
-def do_work_time_based(idx_process, start, ramp, pool, queue):
+def safe_wait(counter_mp, value):
+  while True:
+    with counter_mp.get_lock():
+      if counter_mp.value == value:
+        break;
+
+def do_work_time_based(idx_process, start, ramp, pool, queue, dict_counters_mp):
   global phase
   global MT_interval
   global rampup_rampdown
   global log_dir
   global output_file
+  global clients_number
+
+  counter_first_mp = dict_counters_mp['first']
+  counter_second_mp = dict_counters_mp['second']
 
   if ramp:
 
     while(time.time()-start.value < int(rampup_rampdown)):
-        execute_request(pool, queue)
+      execute_request(pool, queue)
 
     if idx_process == 0:
+      safe_wait(counter_first_mp, clients_number - 1)
       print ("[%s] Exiting RampUp time window." %(util.get_current_time()))
       phase = "MT"
       util.record_start_time()
       start.value=time.time()
       print ("[%s] Entering Measuring time window." %(util.get_current_time()))
 
+    with counter_first_mp.get_lock():
+      counter_first_mp.value += 1
+    safe_wait(counter_first_mp, clients_number)
+
     while(time.time()-start.value < int(MT_interval)):
-        execute_request(pool, queue)
+      execute_request(pool, queue)
 
     if idx_process == 0:
+      safe_wait(counter_second_mp, clients_number - 1)
       print ("[%s] Exiting Measuring time window." %(util.get_current_time()))
       util.record_end_time()
       phase = "RD"
@@ -1131,8 +1147,12 @@ def do_work_time_based(idx_process, start, ramp, pool, queue):
       start.value=time.time()
       print ("[%s] Entering RampDown time window." %(util.get_current_time()))
 
+    with counter_second_mp.get_lock():
+      counter_second_mp.value += 1
+    safe_wait(counter_second_mp, clients_number)
+
     while(time.time()-start.value < int(rampup_rampdown)):
-        execute_request(pool, queue)
+      execute_request(pool, queue)
 
     if idx_process == 0:
       print ("[%s] Exiting RampDown time window." %(util.get_current_time()))
@@ -1142,12 +1162,17 @@ def do_work_time_based(idx_process, start, ramp, pool, queue):
   else:
 
     while(time.time()-start.value < int(MT_interval)):
-        execute_request(pool, queue)
+      execute_request(pool, queue)
 
     if idx_process == 0:
+      safe_wait(counter_first_mp, clients_number - 1)
       print ("[%s] Exiting Measuring time window." %(util.get_current_time()))
       phase = "SD"
       print ("[%s] Entering ShutDown time window." %(util.get_current_time()))
+
+    with counter_first_mp.get_lock():
+      counter_first_mp.value += 1
+    safe_wait(counter_first_mp, clients_number)
 
 def timebased_run(lock_memlogind, memlogind_counter):
   """
@@ -1184,6 +1209,17 @@ def timebased_run(lock_memlogind, memlogind_counter):
                                   no_graph, queue, concurrency))
   post_processing.start()
 
+  lock_first = Lock()
+  counter_first = Value('i', 0)
+
+  lock_second = Lock()
+  counter_second = Value('i', 0)
+
+  dict_counters_mp = {
+    'first': counter_first,
+    'second': counter_second
+  }
+
   start = Value('d', 0.0)
 
   print ("[%s] Starting time based run." % (util.get_current_time()))
@@ -1207,7 +1243,7 @@ def timebased_run(lock_memlogind, memlogind_counter):
   for idx_process in range(0, clients_number):
     worker_process[idx_process].join()
   """
-  do_work_time_based(0, start, ramp, list_pool[idx_process], queue)
+  do_work_time_based(0, start, ramp, list_pool[idx_process], queue, dict_counters_mp)
 
   print("[%s] All requests done." % (util.get_current_time()))
 
