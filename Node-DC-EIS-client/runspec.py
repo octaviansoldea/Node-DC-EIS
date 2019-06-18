@@ -1107,7 +1107,7 @@ def safe_wait(counter_mp, value):
       if counter_mp.value == value:
         break;
 
-def do_work_time_based(idx_process, start, ramp, pool, queue, dict_counters_mp):
+def do_work_time_based(idx_process, start, ramp, pool, queue, dict_counters_mp, can_stop_mp):
   global phase
   global MT_interval
   global rampup_rampdown
@@ -1174,6 +1174,11 @@ def do_work_time_based(idx_process, start, ramp, pool, queue, dict_counters_mp):
       counter_first_mp.value += 1
     safe_wait(counter_first_mp, clients_number)
 
+  if idx_process == 0:
+    safe_wait(can_stop_mp, 1)
+    node_dc_eis_testurls.clean_up_log(queue)
+
+
 def timebased_run(lock_memlogind, memlogind_counter):
   """
   # Desc  : Function to start time based run
@@ -1220,6 +1225,8 @@ def timebased_run(lock_memlogind, memlogind_counter):
     'second': counter_second
   }
 
+  can_stop_mp = Value('i', 0)
+
   start = Value('d', 0.0)
 
   print ("[%s] Starting time based run." % (util.get_current_time()))
@@ -1234,27 +1241,27 @@ def timebased_run(lock_memlogind, memlogind_counter):
     util.record_start_time()
   print ("[%s] Started processing of requests with concurrency of [%d] for [%d] seconds" % (util.get_current_time(), int(concurrency), int(MT_interval)))
 
-  """
+
   worker_process = []
   for idx_process in range(0, clients_number):
     worker_process +=\
       [Process(target=do_work_time_based,
-               args=(idx_process, start, ramp, list_pool[idx_process], queue, dict_counters_mp))]
+               args=(idx_process, start, ramp, list_pool[idx_process], queue, dict_counters_mp, can_stop_mp))]
     worker_process[idx_process].start()
 
-  for idx_process in range(0, clients_number):
-    worker_process[idx_process].join()
-  """
-
-  do_work_time_based(0, start, ramp, list_pool[idx_process], queue, dict_counters_mp)
+  #do_work_time_based(0, start, ramp, list_pool[idx_process], queue, dict_counters_mp, can_stop_mp)
 
   print("[%s] All requests done." % (util.get_current_time()))
 
   lock_memlogind.acquire()
   memlogind_counter.value += 1
   lock_memlogind.release()
-  pool.waitall()
-  node_dc_eis_testurls.clean_up_log(queue)
+  for idx_process in range(0, clients_number):
+    list_pool[idx_process].waitall()
+  with can_stop_mp.get_lock():
+    can_stop_mp.value = 1
+  for idx_process in range(0, clients_number):
+    worker_process[idx_process].join()
   queue.put(('EXIT',))
   post_processing.join()
 
