@@ -77,7 +77,6 @@ postid_index = 0
 keep_on_running = True # Initializing keep_on_running to True
 #default set to 1. Set it to 0 if ramp up rampdown phase is not required
 ramp = 1
-phase = "MT"
 log =""
 log_dir =""
 interval = 10
@@ -88,6 +87,10 @@ cpuCount = -1
 run_mode = 1
 
 http_headers = []
+
+
+
+
 
 """
 #  Database parameters - defaults
@@ -834,21 +837,22 @@ def builddburllist(id_number, name_matches, name_number, zip_matches, zip_number
   print ("[%s] Building list of Urls done." % (util.get_current_time()))
   return
 
-def print_ramp(request_index):
+def print_ramp(request_index, phase):
   """
   # Desc  : Function to print live progress status
   # Input : None
   # Output: None
   """
-  global phase
   if request_index <= int(rampup_rampdown):
-    phase = "RU"
+    with phase.get_lock():
+      phase.value = 0
     if request_index == 1:
       print ("[%s] Entering Rampup window" % (util.get_current_time()))
     if request_index == int(rampup_rampdown):
       print ("[%s] Exiting Rampup window" % (util.get_current_time()))
   elif (request_index - int(rampup_rampdown)) <= int(request):
-    phase = "MT"
+    with phase.get_lock():
+      phase.value = 1
     if (request_index - int(rampup_rampdown)) == 1:
       print ("[%s] Entering Measuring time window" % (util.get_current_time()))
       print "In progress..."
@@ -873,7 +877,8 @@ def print_ramp(request_index):
     if (request_index - int(rampup_rampdown)) == int(request):
       print ("[%s] Exiting Measuring time window" % (util.get_current_time()))
   elif request_index - (int(rampup_rampdown)+int(request)) <= int(rampup_rampdown):
-    phase = "RD"
+    with phase.get_lock():
+      phase.value = 2
     if request_index - (int(rampup_rampdown)+int(request)) == 1:
       print ("[%s] Entering Rampdown window" % (util.get_current_time()))
     if request_index - (int(rampup_rampdown)+int(request)) == int(rampup_rampdown):
@@ -1021,12 +1026,24 @@ def send_request():
   mem_process = Process(target = collect_meminfo, args=(lock_memlogind, memlogind_counter))
   mem_process.start()
 
+  """
+  phase =
+    0 "RU"
+    1 "MT"
+    2 "RD"
+    1 "SD"
+  """
+  phase = Value('i', 1)
+  start_MT = Value('d', 0.0)
+  end_MT = Value('d', 0.0)
+  MT_req = Value('i', 0)
+
   ## Start time based run
   if run_mode == 1:
-    timebased_run(lock_memlogind, memlogind_counter)
+    timebased_run(lock_memlogind, memlogind_counter, phase, start_MT, end_MT, MT_req)
   ## Start requests based run
   else:
-    requestBasedRun(lock_memlogind, memlogind_counter)
+    requestBasedRun(lock_memlogind, memlogind_counter, phase, start_MT, end_MT, MT_req)
 
   mem_process.join()
   if not no_db:
@@ -1035,7 +1052,7 @@ def send_request():
   log.close()
   return
 
-def execute_request(pool, queue=None):
+def execute_request(pool, queue, phase, start_MT, end_MT, MT_req):
     """
     # Desc  : Creates threadpool for concurrency, and sends concurrent requests
     #         to server for the input #requests or based on time interval.
@@ -1044,7 +1061,6 @@ def execute_request(pool, queue=None):
     # Input : threadpool with concurrency number of threads
     # Output: Generates per request details in a templog file
     """
-    global phase
     global tot_get
     global tot_post
     global tot_del
@@ -1077,6 +1093,9 @@ def execute_request(pool, queue=None):
             url_type,
             log_dir,
             phase,
+            start_MT,
+            end_MT,
+            MT_req,
             interval,
             run_mode,
             temp_log,
@@ -1107,8 +1126,7 @@ def safe_wait(counter_mp, value):
       if counter_mp.value == value:
         break;
 
-def do_work_time_based(idx_process, start, ramp, pool, queue, dict_counters_mp, can_stop_mp):
-  global phase
+def do_work_time_based(idx_process, start, ramp, pool, queue, dict_counters_mp, can_stop_mp, phase, start_MT, end_MT, MT_req):
   global MT_interval
   global rampup_rampdown
   global log_dir
@@ -1121,13 +1139,14 @@ def do_work_time_based(idx_process, start, ramp, pool, queue, dict_counters_mp, 
   if ramp:
 
     while(time.time()-start.value < int(rampup_rampdown)):
-      execute_request(pool, queue)
+      execute_request(pool, queue, phase, start_MT, end_MT, MT_req)
 
     if idx_process == 0:
       safe_wait(counter_first_mp, clients_number - 1)
       print ("[%s] Exiting RampUp time window." %(util.get_current_time()))
-      phase = "MT"
-      util.record_start_time()
+      with phase.get_lock():
+        phase.value = 1
+      util.record_start_time(start_MT)
       start.value=time.time()
       print ("[%s] Entering Measuring time window." %(util.get_current_time()))
 
@@ -1136,14 +1155,15 @@ def do_work_time_based(idx_process, start, ramp, pool, queue, dict_counters_mp, 
     safe_wait(counter_first_mp, clients_number)
 
     while(time.time()-start.value < int(MT_interval)):
-      execute_request(pool, queue)
+      execute_request(pool, queue, phase, start_MT, end_MT, MT_req)
 
     if idx_process == 0:
       safe_wait(counter_second_mp, clients_number - 1)
       print ("[%s] Exiting Measuring time window." %(util.get_current_time()))
-      util.record_end_time()
-      phase = "RD"
-      util.calculate_throughput(log_dir,concurrency,cpuCount)
+      util.record_end_time(end_MT)
+      with phase.get_lock():
+        phase.value = 2
+      util.calculate_throughput(log_dir, concurrency, cpuCount, start_MT, end_MT, MT_req)
       start.value=time.time()
       print ("[%s] Entering RampDown time window." %(util.get_current_time()))
 
@@ -1152,22 +1172,24 @@ def do_work_time_based(idx_process, start, ramp, pool, queue, dict_counters_mp, 
     safe_wait(counter_second_mp, clients_number)
 
     while(time.time()-start.value < int(rampup_rampdown)):
-      execute_request(pool, queue)
+      execute_request(pool, queue, phase, start_MT, end_MT, MT_req)
 
     if idx_process == 0:
       print ("[%s] Exiting RampDown time window." %(util.get_current_time()))
-      phase = "SD"
+      with phase.get_lock():
+        phase.value = 3
       print ("[%s] Entering ShutDown time window." %(util.get_current_time()))
 
   else:
 
     while(time.time()-start.value < int(MT_interval)):
-      execute_request(pool, queue)
+      execute_request(pool, queue, phase, start_MT, end_MT, MT_req)
 
     if idx_process == 0:
       safe_wait(counter_first_mp, clients_number - 1)
       print ("[%s] Exiting Measuring time window." %(util.get_current_time()))
-      phase = "SD"
+      with phase.get_lock():
+        phase.value = 3
       print ("[%s] Entering ShutDown time window." %(util.get_current_time()))
 
     with counter_first_mp.get_lock():
@@ -1179,7 +1201,7 @@ def do_work_time_based(idx_process, start, ramp, pool, queue, dict_counters_mp, 
     node_dc_eis_testurls.clean_up_log(queue)
 
 
-def timebased_run(lock_memlogind, memlogind_counter):
+def timebased_run(lock_memlogind, memlogind_counter, phase, start_MT, end_MT, MT_req):
   """
   # Desc  : Function to start time based run
   #         Uses threadpool for concurrency, and sends concurrent requests
@@ -1189,7 +1211,6 @@ def timebased_run(lock_memlogind, memlogind_counter):
   # Input : threadpool with concurrency number of threads
   # Output: Generates per request details in a templog file
   """
-  global phase
   global MT_interval
   global rampup_rampdown
   global log
@@ -1231,25 +1252,26 @@ def timebased_run(lock_memlogind, memlogind_counter):
 
   print ("[%s] Starting time based run." % (util.get_current_time()))
   if ramp:
-    phase = "RU"
+    with phase.get_lock():
+      phase.value = 0
     start.value = time.time()
     print("[%s] Entering RampUp time window." % (util.get_current_time()))
   else:
-    phase = "MT"
+    with phase.get_lock():
+      phase.value = 1
     start.value = time.time()
     print("Entering Measuring time window : [%s]" % (util.get_current_time()))
-    util.record_start_time()
+    util.record_start_time(start_MT)
   print ("[%s] Started processing of requests with concurrency of [%d] for [%d] seconds" % (util.get_current_time(), int(concurrency), int(MT_interval)))
-
 
   worker_process = []
   for idx_process in range(0, clients_number):
     worker_process +=\
       [Process(target=do_work_time_based,
-               args=(idx_process, start, ramp, list_pool[idx_process], queue, dict_counters_mp, can_stop_mp))]
+               args=(idx_process, start, ramp, list_pool[idx_process], queue, dict_counters_mp, can_stop_mp, phase, start_MT, end_MT, MT_req))]
     worker_process[idx_process].start()
 
-  #do_work_time_based(0, start, ramp, list_pool[idx_process], queue, dict_counters_mp, can_stop_mp)
+  #do_work_time_based(0, start, ramp, list_pool[idx_process], queue, dict_counters_mp, can_stop_mp, start_MT, end_MT, MT_req, phase, start_MT, end_MT, MT_req)
 
   print("[%s] All requests done." % (util.get_current_time()))
 
@@ -1265,7 +1287,7 @@ def timebased_run(lock_memlogind, memlogind_counter):
   queue.put(('EXIT',))
   post_processing.join()
 
-def requestBasedRun(lock_memlogind, memlogind_counter):
+def requestBasedRun(lock_memlogind, memlogind_counter, phase, start_MT, end_MT, MT_req):
   """
   # Desc  : Function to start Requests based run
   #         Creates threadpool for concurrency, and sends concurrent requests
@@ -1286,7 +1308,6 @@ def requestBasedRun(lock_memlogind, memlogind_counter):
   global tot_get
   global tot_post
   global tot_del
-  global phase
   global after_run
 
   print ("[%s] Starting request based run." % (util.get_current_time()))
@@ -1300,14 +1321,15 @@ def requestBasedRun(lock_memlogind, memlogind_counter):
   for request_index in range(1, (loop+1)):
       #check for rampup and rampdown requests
       if ramp:
-         print_ramp(request_index)
+         print_ramp(request_index, phase)
       else:
-        phase = "MT"
+        with phase.get_lock():
+          phase.value = 1
         if request_index == 1:
           print "Entering Measuring time window"
         if request_index == int(request):
           print "Exiting Measuring time window"
-      execute_request(pool)
+      execute_request(pool, None, phase, start_MT, end_MT, MT_req)
   #Wait for request threads to finish
   lock_memlogind.acquire()
   memlogind_counter.value += 1

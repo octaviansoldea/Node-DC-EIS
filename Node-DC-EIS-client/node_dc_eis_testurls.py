@@ -83,7 +83,7 @@ def get_ip(hostname):
   ip_cache[hostname] = ip
   return ip
 
-def get_url(url, url_type, request_num, phase, accept_header, http_headers):
+def get_url(url, url_type, request_num, accept_header, http_headers, phase, start_MT, end_MT, MT_req):
   """
   # Desc  : Function to send get requests to the server. Type 1 is get requests
   #         handles 3 types of GET requests based on ID, last_name and zipcode.
@@ -139,7 +139,7 @@ Connection: close\r
     response_time = end - start
     total_length = calculate_len_get(headers)
 
-  util.printlog(log,phase,url_type,request_num,url,start,end,response_time,total_length)
+  util.printlog(log,phase, start_MT, end_MT, MT_req,url_type,request_num,url,start,end,response_time,total_length)
   return 
 
 def post_function(url, post_data):
@@ -183,7 +183,7 @@ def post_function(url, post_data):
     print e
   return r
 
-def post_url(url, url_type, request_num, phase):
+def post_url(url, url_type, request_num, phase, start_MT, end_MT, MT_req):
   """
   # Desc  : Function to send post requests to the server. Type 2 is post requests
   #         Retries if the post request fails
@@ -235,10 +235,10 @@ def post_url(url, url_type, request_num, phase):
       print post_data
       exit(1)
 
-  util.printlog(log,phase,url_type,request_num,url,start,end,response_time,total_length)
+  util.printlog(log,phase, start_MT, end_MT, MT_req,url_type,request_num,url,start,end,response_time,total_length)
   return
 
-def delete_url(url, url_type, request_num, phase):
+def delete_url(url, url_type, request_num, phase, start_MT, end_MT, MT_req):
   """
   # Desc  : Function to send delete requests to the server. Type 3 is delete requests
   #         also captures the data record being deleted and saves it in a list(post/_datalist)
@@ -293,7 +293,7 @@ def delete_url(url, url_type, request_num, phase):
     response_time = end-start
     total_length = calculate_len_postdel(r)
 
-  util.printlog(log,phase,url_type,request_num,url,start,end,response_time,total_length)
+  util.printlog(log,phase, start_MT, end_MT, MT_req,url_type,request_num,url,start,end,response_time,total_length)
   return
 
 def calculate_len_get(headers):
@@ -352,7 +352,7 @@ def clean_up_log(queue):
   queue.put(('PROCESS', log.name, file_cnt))
   log = None
 
-def main_entry(url, request_num, url_type, log_dir, phase, interval,
+def main_entry(url, request_num, url_type, log_dir, phase, start_MT, end_MT, MT_req, interval,
                run_mode, temp_log, accept_header, queue, http_headers):
   """
   # Desc  : main entry function to determine the type of url - GET,POST or DELETE
@@ -392,9 +392,9 @@ def main_entry(url, request_num, url_type, log_dir, phase, interval,
       sys.exit(1)
 
   if url_type == 1:
-    get_url(url, url_type, request_num, phase, accept_header, http_headers)
+    get_url(url, url_type, request_num, accept_header, http_headers, phase, start_MT, end_MT, MT_req)
   if url_type == 2:
-    post_url(url, url_type, request_num, phase)
+    post_url(url, url_type, request_num, phase, start_MT, end_MT, MT_req)
   if url_type == 3:
-    delete_url(url, url_type, request_num, phase)
+    delete_url(url, url_type, request_num, phase, start_MT, end_MT, MT_req)
 
