@@ -58,12 +58,13 @@ def printlog(log,phase,url_type,request_num,url,start,end,response_time,total_le
   # Output: Returns per request details in a templog file
   """
   global MT_req
+  phase_local = phase
   if phase =="MT":
     if not ((start >= start_MT and end_MT == 0) or (end_MT > start_MT and end <= end_MT)):
-      phase = "RD"
+      phase_local = "RD"
     else:
       MT_req = MT_req + 1
-  log_str = phase+","+str(request_num)+","+str(url)+","+str(start)+","+str(end)+","+str(response_time)+","+str(total_length)+","+str(url_type)
+  log_str = phase_local+","+str(request_num)+","+str(url)+","+str(start)+","+str(end)+","+str(response_time)+","+str(total_length)+","+str(url_type)
   print >> log, log_str
   log.flush()
 
