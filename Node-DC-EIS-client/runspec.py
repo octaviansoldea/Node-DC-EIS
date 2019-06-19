@@ -77,7 +77,10 @@ postid_index = 0
 keep_on_running = True # Initializing keep_on_running to True
 #default set to 1. Set it to 0 if ramp up rampdown phase is not required
 ramp = 1
+
 log =""
+log_lock = Lock()
+
 log_dir =""
 interval = 10
 instance_id = 0
@@ -986,6 +989,7 @@ def send_request():
   # Output: Generates per request details in a templog file
   """
   global log
+  global log_lock
   global after_run
   global log_dir
   global interval
@@ -1105,7 +1109,8 @@ def execute_request(pool, queue, phase, start_MT, end_MT, MT_req,
             temp_log,
             'text/html' if use_html else 'application/json',
             queue,
-            http_headers
+            http_headers,
+            log_lock
           ]
 
         if(int(concurrency) == 1):
@@ -1228,6 +1233,7 @@ def timebased_run(lock_memlogind, memlogind_counter, phase, start_MT, end_MT, MT
   global MT_interval
   global rampup_rampdown
   global log
+  global log_lock
   global log_dir
   global interval
   global temp_log
