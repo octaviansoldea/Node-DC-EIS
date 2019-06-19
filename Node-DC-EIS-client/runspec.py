@@ -1046,7 +1046,7 @@ def send_request():
   ## Start requests based run
   else:
     requestBasedRun(lock_memlogind, memlogind_counter, phase, start_MT, end_MT, MT_req,
-                    array_tot_get, array_tot_post, array_tot_del)
+                    0, array_tot_get, array_tot_post, array_tot_del)
 
   mem_process.join()
   if not no_db:
@@ -1328,19 +1328,19 @@ def requestBasedRun(lock_memlogind, memlogind_counter, phase, start_MT, end_MT, 
   else:
     loop = int(request)
 
-  for request_index in range(1, (loop+1)):
+  for request_index_local in range(1, (loop+1)):
       #check for rampup and rampdown requests
       if ramp:
-         print_ramp(request_index, phase)
+         print_ramp(request_index_local, phase)
       else:
         with phase.get_lock():
           phase.value = 1
-        if request_index == 1:
+        if request_index_local == 1:
           print "Entering Measuring time window"
-        if request_index == int(request):
+        if request_index_local == int(request):
           print "Exiting Measuring time window"
       execute_request(pool, None, phase, start_MT, end_MT, MT_req,
-                      0, array_tot_get, array_tot_post, array_tot_del)
+                      idx_process, array_tot_get, array_tot_post, array_tot_del)
   #Wait for request threads to finish
   lock_memlogind.acquire()
   memlogind_counter.value += 1
