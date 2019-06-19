@@ -49,7 +49,7 @@ from process_time_based_output import process_time_based_output
 import traceback
 import urllib
 import util
-from multiprocessing import Process, Lock, Value
+from multiprocessing import Process, Lock, Value, Array
 
 """
 #  All globals
@@ -108,9 +108,6 @@ zip_count = 0
 count = 0
 post_count = 0
 delete_count = 0
-tot_get = 0
-tot_post = 0
-tot_del = 0
 
 """
 #  Application specific globals
@@ -1038,21 +1035,28 @@ def send_request():
   end_MT = Value('d', 0.0)
   MT_req = Value('i', 0)
 
+  array_tot_get = Array('i', clients_number)
+  array_tot_post = Array('i', clients_number)
+  array_tot_del = Array('i', clients_number)
+
   ## Start time based run
   if run_mode == 1:
-    timebased_run(lock_memlogind, memlogind_counter, phase, start_MT, end_MT, MT_req)
+    timebased_run(lock_memlogind, memlogind_counter, phase, start_MT, end_MT, MT_req,
+                  array_tot_get, array_tot_post, array_tot_del)
   ## Start requests based run
   else:
-    requestBasedRun(lock_memlogind, memlogind_counter, phase, start_MT, end_MT, MT_req)
+    requestBasedRun(lock_memlogind, memlogind_counter, phase, start_MT, end_MT, MT_req,
+                    array_tot_get, array_tot_post, array_tot_del)
 
   mem_process.join()
   if not no_db:
     after_run = check_db()
-  print_summary()
+  print_summary(sum(array_tot_get), sum(array_tot_post), sum(array_tot_del))
   log.close()
   return
 
-def execute_request(pool, queue, phase, start_MT, end_MT, MT_req):
+def execute_request(pool, queue, phase, start_MT, end_MT, MT_req,
+                    idx_process, array_tot_get, array_tot_post, array_tot_del):
     """
     # Desc  : Creates threadpool for concurrency, and sends concurrent requests
     #         to server for the input #requests or based on time interval.
@@ -1061,9 +1065,6 @@ def execute_request(pool, queue, phase, start_MT, end_MT, MT_req):
     # Input : threadpool with concurrency number of threads
     # Output: Generates per request details in a templog file
     """
-    global tot_get
-    global tot_post
-    global tot_del
     global log_dir
     try:
         if(execute_request.url_index >= len(urllist)):
@@ -1073,16 +1074,16 @@ def execute_request(pool, queue, phase, start_MT, end_MT, MT_req):
 
         if(urllist[execute_request.url_index]['method']== 'GET'):
           url_type = 1
-          tot_get = tot_get + 1
+          array_tot_get[idx_process] += 1
           if parsed.path == "/employees/id/":
               ids = getNextEmployeeId()
               url = url+ids
         if(urllist[execute_request.url_index]['method']== 'POST'):
           url_type = 2
-          tot_post = tot_post +1
+          array_tot_post[idx_process] += 1
         if(urllist[execute_request.url_index]['method']== 'DELETE'):
           url_type = 3
-          tot_del = tot_del +1
+          array_tot_del[idx_process] += 1
           ids = getNextEmployeeId()
           removeEmployeeId(ids)
           url = url+ids
@@ -1126,7 +1127,9 @@ def safe_wait(counter_mp, value):
       if counter_mp.value == value:
         break;
 
-def do_work_time_based(idx_process, start, ramp, pool, queue, dict_counters_mp, can_stop_mp, phase, start_MT, end_MT, MT_req):
+def do_work_time_based(idx_process, start, ramp, pool, queue, dict_counters_mp, can_stop_mp,
+                       phase, start_MT, end_MT, MT_req,
+                       array_tot_get, array_tot_post, array_tot_del):
   global MT_interval
   global rampup_rampdown
   global log_dir
@@ -1139,7 +1142,8 @@ def do_work_time_based(idx_process, start, ramp, pool, queue, dict_counters_mp, 
   if ramp:
 
     while(time.time()-start.value < int(rampup_rampdown)):
-      execute_request(pool, queue, phase, start_MT, end_MT, MT_req)
+      execute_request(pool, queue, phase, start_MT, end_MT, MT_req,
+                      idx_process, array_tot_get, array_tot_post, array_tot_del)
 
     if idx_process == 0:
       safe_wait(counter_first_mp, clients_number - 1)
@@ -1155,7 +1159,8 @@ def do_work_time_based(idx_process, start, ramp, pool, queue, dict_counters_mp, 
     safe_wait(counter_first_mp, clients_number)
 
     while(time.time()-start.value < int(MT_interval)):
-      execute_request(pool, queue, phase, start_MT, end_MT, MT_req)
+      execute_request(pool, queue, phase, start_MT, end_MT, MT_req,
+                      idx_process, array_tot_get, array_tot_post, array_tot_del)
 
     if idx_process == 0:
       safe_wait(counter_second_mp, clients_number - 1)
@@ -1172,7 +1177,8 @@ def do_work_time_based(idx_process, start, ramp, pool, queue, dict_counters_mp, 
     safe_wait(counter_second_mp, clients_number)
 
     while(time.time()-start.value < int(rampup_rampdown)):
-      execute_request(pool, queue, phase, start_MT, end_MT, MT_req)
+      execute_request(pool, queue, phase, start_MT, end_MT, MT_req,
+                      idx_process, array_tot_get, array_tot_post, array_tot_del)
 
     if idx_process == 0:
       print ("[%s] Exiting RampDown time window." %(util.get_current_time()))
@@ -1183,7 +1189,8 @@ def do_work_time_based(idx_process, start, ramp, pool, queue, dict_counters_mp, 
   else:
 
     while(time.time()-start.value < int(MT_interval)):
-      execute_request(pool, queue, phase, start_MT, end_MT, MT_req)
+      execute_request(pool, queue, phase, start_MT, end_MT, MT_req,
+                      idx_process, array_tot_get, array_tot_post, array_tot_del)
 
     if idx_process == 0:
       safe_wait(counter_first_mp, clients_number - 1)
@@ -1201,7 +1208,8 @@ def do_work_time_based(idx_process, start, ramp, pool, queue, dict_counters_mp, 
     node_dc_eis_testurls.clean_up_log(queue)
 
 
-def timebased_run(lock_memlogind, memlogind_counter, phase, start_MT, end_MT, MT_req):
+def timebased_run(lock_memlogind, memlogind_counter, phase, start_MT, end_MT, MT_req,
+                  array_tot_get, array_tot_post, array_tot_del):
   """
   # Desc  : Function to start time based run
   #         Uses threadpool for concurrency, and sends concurrent requests
@@ -1268,10 +1276,14 @@ def timebased_run(lock_memlogind, memlogind_counter, phase, start_MT, end_MT, MT
   for idx_process in range(0, clients_number):
     worker_process +=\
       [Process(target=do_work_time_based,
-               args=(idx_process, start, ramp, list_pool[idx_process], queue, dict_counters_mp, can_stop_mp, phase, start_MT, end_MT, MT_req))]
+               args=(idx_process, start, ramp, list_pool[idx_process], queue, dict_counters_mp, can_stop_mp,
+                     phase, start_MT, end_MT, MT_req,
+                     array_tot_get, array_tot_post, array_tot_del))]
     worker_process[idx_process].start()
 
-  #do_work_time_based(0, start, ramp, list_pool[idx_process], queue, dict_counters_mp, can_stop_mp, start_MT, end_MT, MT_req, phase, start_MT, end_MT, MT_req)
+  #do_work_time_based(0, start, ramp, list_pool[idx_process], queue, dict_counters_mp, can_stop_mp,
+  #                   start_MT, end_MT, MT_req, phase, start_MT, end_MT, MT_req,
+  #                   array_tot_get, array_tot_post, array_tot_del)
 
   print("[%s] All requests done." % (util.get_current_time()))
 
@@ -1287,7 +1299,8 @@ def timebased_run(lock_memlogind, memlogind_counter, phase, start_MT, end_MT, MT
   queue.put(('EXIT',))
   post_processing.join()
 
-def requestBasedRun(lock_memlogind, memlogind_counter, phase, start_MT, end_MT, MT_req):
+def requestBasedRun(lock_memlogind, memlogind_counter, phase, start_MT, end_MT, MT_req,
+                    idx_process, array_tot_get, array_tot_post, array_tot_del):
   """
   # Desc  : Function to start Requests based run
   #         Creates threadpool for concurrency, and sends concurrent requests
@@ -1305,9 +1318,6 @@ def requestBasedRun(lock_memlogind, memlogind_counter, phase, start_MT, end_MT, 
   if clients_number != 1:
     raise NotImplementedError('There is no support in requestBasedRun for clients_number != 1')
 
-  global tot_get
-  global tot_post
-  global tot_del
   global after_run
 
   print ("[%s] Starting request based run." % (util.get_current_time()))
@@ -1329,7 +1339,8 @@ def requestBasedRun(lock_memlogind, memlogind_counter, phase, start_MT, end_MT, 
           print "Entering Measuring time window"
         if request_index == int(request):
           print "Exiting Measuring time window"
-      execute_request(pool, None, phase, start_MT, end_MT, MT_req)
+      execute_request(pool, None, phase, start_MT, end_MT, MT_req,
+                      0, array_tot_get, array_tot_post, array_tot_del)
   #Wait for request threads to finish
   lock_memlogind.acquire()
   memlogind_counter.value += 1
@@ -1419,7 +1430,7 @@ def post_process_request_based_data(temp_log,output_file):
   return
 
 #Generates a summary output file which contains hardware,software OS and Client details
-def print_summary():
+def print_summary(tot_get, tot_post, tot_del):
   """
   # Desc  : Print summary of the run
   # Input : None
