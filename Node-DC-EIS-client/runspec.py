@@ -902,7 +902,7 @@ def removeEmployeeId(small_employee_idlist, ids):
     sys.exit(1)
   return
 
-def collect_meminfo(lock_memlogind, memlogind_counter):
+def collect_meminfo(memlogind_counter):
   """
   # Desc  : Function to collect server memory usage stats by periodic server
   #         requests
@@ -918,22 +918,19 @@ def collect_meminfo(lock_memlogind, memlogind_counter):
   print ("[%s] Starting meminfo collection process " % (util.get_current_time()))
   start_time = time.time()
   while True:
-    lock_memlogind.acquire()
+    with memlogind_counter.get_lock():
 
-    if memlogind_counter.value == clients_number:
-      print
-      ""
-      print("========================log_dir = ", log_dir)
-      print("========================os.path.join(log_dir,memlogfile) = ", os.path.join(log_dir, memlogfile))
-      elapsed_time = time.time() - start_time
-      with open(os.path.join(log_dir, memlogfile + ".csv"), 'wb') as f:
-        writer = csv.writer(f)
-        writer.writerows(izip(list(range(0, int(elapsed_time), 1)), rss_list, heapTotlist, heapUsedlist))
-        print("[%s] Exiting meminfo collection process" % (util.get_current_time()))
-        lock_memlogind.release()
-        sys.exit(0)
-
-    lock_memlogind.release()
+      if memlogind_counter.value == clients_number:
+        print
+        ""
+        print("========================log_dir = ", log_dir)
+        print("========================os.path.join(log_dir,memlogfile) = ", os.path.join(log_dir, memlogfile))
+        elapsed_time = time.time() - start_time
+        with open(os.path.join(log_dir, memlogfile + ".csv"), 'wb') as f:
+          writer = csv.writer(f)
+          writer.writerows(izip(list(range(0, int(elapsed_time), 1)), rss_list, heapTotlist, heapUsedlist))
+          print("[%s] Exiting meminfo collection process" % (util.get_current_time()))
+          sys.exit(0)
 
     try:
       r = requests.get(meminfo_url)
@@ -999,10 +996,9 @@ def send_request():
 
   log.flush()
 
-  lock_memlogind = Lock()
   memlogind_counter = Value('i', 0)
 
-  mem_process = Process(target = collect_meminfo, args=(lock_memlogind, memlogind_counter))
+  mem_process = Process(target = collect_meminfo, args=(memlogind_counter, ))
   mem_process.start()
 
   """
@@ -1026,12 +1022,12 @@ def send_request():
 
   ## Start time based run
   if run_mode == 1:
-    timebased_run(lock_memlogind, memlogind_counter, phase, start_MT, end_MT, MT_req,
+    timebased_run(memlogind_counter, phase, start_MT, end_MT, MT_req,
                   array_tot_get, array_tot_post, array_tot_del,
                   execute_request_request_index, execute_request_url_index)
   ## Start requests based run
   else:
-    requestBasedRun(lock_memlogind, memlogind_counter, phase, start_MT, end_MT, MT_req,
+    requestBasedRun(memlogind_counter, phase, start_MT, end_MT, MT_req,
                     0, array_tot_get, array_tot_post, array_tot_del,
                     execute_request_request_index, execute_request_url_index)
 
@@ -1119,7 +1115,9 @@ def do_work_time_based(idx_process, start, ramp, pool, queue, dict_counters_mp,
                        phase, start_MT, end_MT, MT_req,
                        array_tot_get, array_tot_post, array_tot_del,
                        execute_request_request_index, execute_request_url_index,
-                       small_employee_idlist, small_list_urllist):
+                       small_employee_idlist, small_list_urllist,
+                       memlogind_counter):
+
   global MT_interval
   global rampup_rampdown
   global log_dir
@@ -1201,11 +1199,12 @@ def do_work_time_based(idx_process, start, ramp, pool, queue, dict_counters_mp,
       counter_first_mp.value += 1
     safe_wait(counter_first_mp, clients_number)
 
-  if idx_process == 0:
-    node_dc_eis_testurls.clean_up_log(queue)
+  node_dc_eis_testurls.clean_up_log(queue)
+  with memlogind_counter.get_lock():
+    memlogind_counter.value += 1
 
 
-def timebased_run(lock_memlogind, memlogind_counter, phase, start_MT, end_MT, MT_req,
+def timebased_run(memlogind_counter, phase, start_MT, end_MT, MT_req,
                   array_tot_get, array_tot_post, array_tot_del,
                   execute_request_request_index, execute_request_url_index):
   """
@@ -1277,14 +1276,12 @@ def timebased_run(lock_memlogind, memlogind_counter, phase, start_MT, end_MT, MT
                      phase, start_MT, end_MT, MT_req,
                      array_tot_get, array_tot_post, array_tot_del,
                      execute_request_request_index, execute_request_url_index,
-                     list_employee_idlist[idx_process], list_urllist[idx_process]))]
+                     list_employee_idlist[idx_process], list_urllist[idx_process],
+                     memlogind_counter))]
     worker_process[idx_process].start()
 
   print("[%s] All requests done." % (util.get_current_time()))
 
-  lock_memlogind.acquire()
-  memlogind_counter.value += 1
-  lock_memlogind.release()
   for idx_process in range(0, clients_number):
     list_pool[idx_process].waitall()
 
@@ -1293,7 +1290,7 @@ def timebased_run(lock_memlogind, memlogind_counter, phase, start_MT, end_MT, MT
   queue.put(('EXIT',))
   post_processing.join()
 
-def requestBasedRun(lock_memlogind, memlogind_counter, phase, start_MT, end_MT, MT_req,
+def requestBasedRun(memlogind_counter, phase, start_MT, end_MT, MT_req,
                     idx_process, array_tot_get, array_tot_post, array_tot_del,
                     execute_request_request_index, execute_request_url_index):
   """
@@ -1339,13 +1336,15 @@ def requestBasedRun(lock_memlogind, memlogind_counter, phase, start_MT, end_MT, 
                       execute_request_request_index, execute_request_url_index,
                       employee_idlist, urllist)
   #Wait for request threads to finish
-  lock_memlogind.acquire()
-  memlogind_counter.value += 1
-  lock_memlogind.release()
+  with memlogind_counter.get_lock():
+    memlogind_counter.value += 1
   pool.waitall()
 
   print ("[%s] All requests done." % (util.get_current_time()))
   post_process_request_based_data(temp_log,output_file)
+
+  with memlogind_counter.get_lock():
+    memlogind_counter.value += 1
   return
 
 def post_process_request_based_data(temp_log,output_file):

@@ -9,7 +9,7 @@
     "rampup_rampdown": "25",
     "tempfile":"RTdata",
     "total_urls":"200",
-    "clients_number": 1,
+    "clients_number": 2,
     "server_ipaddress":"localhost",
     "server_port":"9001",
     "root_endpoint": "/",
