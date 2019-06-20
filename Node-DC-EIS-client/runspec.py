@@ -600,20 +600,16 @@ def get_data():
   # Output: None
   """
 
-  print("============================= get_data")
-
   #Populate database
   if not no_db:
-    print("============================= no_db")
     run_loaddb()
 
   if get_endpoints_urls:
-    print("============================= generate_urls_from_list")
     generate_urls_from_list()
   else:
-    print("============================= generate_urls_from_list")
     generate_urls_from_db()
 
+  global list_urllist
   list_urllist = split_in_quasi_equal_lists(urllist, clients_number)
 
   if multiple_instance:
@@ -702,20 +698,11 @@ def generate_urls_from_db():
   zip_number = int(math.ceil((int(get_urlcount)*float(float(zipurl_ratio)/100))))
 
   #start building the url list
-  u = employee_idlist
-
   list_employee_idlist =\
     split_in_quasi_equal_lists(employee_idlist, clients_number);
 
   employee_idlist = []
   employee_idlist = [y for x in list_employee_idlist for y in x]
-
-  sd = set(u).symmetric_difference(set(employee_idlist))
-
-  if len(sd) == 0:
-    print("======================= size 0")
-  else:
-    print("======================= size different than 0")
 
   builddburllist(id_number, name_matches, name_number, zip_matches, zip_number, post_urlcount, delete_urlcount)
 
@@ -788,7 +775,6 @@ def builddburllist(id_number, name_matches, name_number, zip_matches, zip_number
   # Output:Return current date and time in specific format for all log messages
   """
   print ("[%s] Building list of Urls" % (util.get_current_time()))
-  id_usedlist = []
   global id_count
   global name_count
   global zip_count
@@ -880,7 +866,7 @@ def print_ramp(request_index, phase):
       print ("[%s] Exiting Rampdown window" % (util.get_current_time()))
   return
 
-def getNextEmployeeId():
+def getNextEmployeeId(small_employee_idlist):
   """
   # Desc  : Function returns next employee id from the global list
   # Input : Global employee list
@@ -888,28 +874,26 @@ def getNextEmployeeId():
   """
   global idmatches_index
   global postid_index
-  global employee_idlist
-  if len(employee_idlist) > 0:
-    if idmatches_index >= len(employee_idlist):
+  if len(small_employee_idlist) > 0:
+    if idmatches_index >= len(small_employee_idlist):
         idmatches_index = 0
-    return_id = employee_idlist[idmatches_index]
+    return_id = small_employee_idlist[idmatches_index]
     idmatches_index = idmatches_index + 1
   else:
     print "Fatal error-No more IDs available. Aborting"
     sys.exit(1)
   return return_id
 
-def removeEmployeeId(ids):
+def removeEmployeeId(small_employee_idlist, ids):
   """
   # Desc  : Function deletes employeeid from global list after successful
   #         DELETE request
   # Input : input employeeid and global list
   # Output: None
   """
-  global employee_idlist
-  if len(employee_idlist) > 0:
-    if ids in employee_idlist:
-      employee_idlist.remove(ids)
+  if len(small_employee_idlist) > 0:
+    if ids in small_employee_idlist:
+      small_employee_idlist.remove(ids)
     else:
       print "Id not found. Aborting"
       sys.exit(1)
@@ -1060,7 +1044,8 @@ def send_request():
 
 def execute_request(pool, queue, phase, start_MT, end_MT, MT_req,
                     idx_process, array_tot_get, array_tot_post, array_tot_del,
-                    execute_request_request_index, execute_request_url_index):
+                    execute_request_request_index, execute_request_url_index,
+                    small_employee_idlist, small_list_urllist):
     """
     # Desc  : Creates threadpool for concurrency, and sends concurrent requests
     #         to server for the input #requests or based on time interval.
@@ -1071,26 +1056,26 @@ def execute_request(pool, queue, phase, start_MT, end_MT, MT_req,
     """
     global log_dir
     try:
-        if(execute_request_url_index[idx_process] >= len(urllist)):
+        if(execute_request_url_index[idx_process] >= len(small_list_urllist)):
            execute_request_url_index[idx_process] = 0
         url_index = execute_request_url_index[idx_process]
-        url = urllist[url_index]['url']
+        url = list_urllist[idx_process][url_index]['url']
         parsed = urlparse.urlparse(url)
 
-        if(urllist[url_index]['method']== 'GET'):
+        if(small_list_urllist[url_index]['method']== 'GET'):
           url_type = 1
           array_tot_get[idx_process] += 1
           if parsed.path == "/employees/id/":
-              ids = getNextEmployeeId()
+              ids = getNextEmployeeId(small_employee_idlist)
               url = url+ids
-        if(urllist[url_index]['method']== 'POST'):
+        if(small_list_urllist[url_index]['method']== 'POST'):
           url_type = 2
           array_tot_post[idx_process] += 1
-        if(urllist[url_index]['method']== 'DELETE'):
+        if(small_list_urllist[url_index]['method']== 'DELETE'):
           url_type = 3
           array_tot_del[idx_process] += 1
-          ids = getNextEmployeeId()
-          removeEmployeeId(ids)
+          ids = getNextEmployeeId(small_employee_idlist)
+          removeEmployeeId(small_employee_idlist, ids)
           url = url+ids
 
         main_entry_args = [
@@ -1133,7 +1118,8 @@ def safe_wait(counter_mp, value):
 def do_work_time_based(idx_process, start, ramp, pool, queue, dict_counters_mp,
                        phase, start_MT, end_MT, MT_req,
                        array_tot_get, array_tot_post, array_tot_del,
-                       execute_request_request_index, execute_request_url_index):
+                       execute_request_request_index, execute_request_url_index,
+                       small_employee_idlist, small_list_urllist):
   global MT_interval
   global rampup_rampdown
   global log_dir
@@ -1148,7 +1134,8 @@ def do_work_time_based(idx_process, start, ramp, pool, queue, dict_counters_mp,
     while(time.time()-start.value < int(rampup_rampdown)):
       execute_request(pool, queue, phase, start_MT, end_MT, MT_req,
                       idx_process, array_tot_get, array_tot_post, array_tot_del,
-                      execute_request_request_index, execute_request_url_index)
+                      execute_request_request_index, execute_request_url_index,
+                      small_employee_idlist, small_list_urllist)
 
     if idx_process == 0:
       safe_wait(counter_first_mp, clients_number - 1)
@@ -1166,7 +1153,8 @@ def do_work_time_based(idx_process, start, ramp, pool, queue, dict_counters_mp,
     while(time.time()-start.value < int(MT_interval)):
       execute_request(pool, queue, phase, start_MT, end_MT, MT_req,
                       idx_process, array_tot_get, array_tot_post, array_tot_del,
-                      execute_request_request_index, execute_request_url_index)
+                      execute_request_request_index, execute_request_url_index,
+                      small_employee_idlist, small_list_urllist)
 
     if idx_process == 0:
       safe_wait(counter_second_mp, clients_number - 1)
@@ -1185,7 +1173,8 @@ def do_work_time_based(idx_process, start, ramp, pool, queue, dict_counters_mp,
     while(time.time()-start.value < int(rampup_rampdown)):
       execute_request(pool, queue, phase, start_MT, end_MT, MT_req,
                       idx_process, array_tot_get, array_tot_post, array_tot_del,
-                      execute_request_request_index, execute_request_url_index)
+                      execute_request_request_index, execute_request_url_index,
+                      small_employee_idlist, small_list_urllist)
 
     if idx_process == 0:
       print ("[%s] Exiting RampDown time window." %(util.get_current_time()))
@@ -1198,7 +1187,8 @@ def do_work_time_based(idx_process, start, ramp, pool, queue, dict_counters_mp,
     while(time.time()-start.value < int(MT_interval)):
       execute_request(pool, queue, phase, start_MT, end_MT, MT_req,
                       idx_process, array_tot_get, array_tot_post, array_tot_del,
-                      execute_request_request_index, execute_request_url_index)
+                      execute_request_request_index, execute_request_url_index,
+                      small_employee_idlist, small_list_urllist)
 
     if idx_process == 0:
       safe_wait(counter_first_mp, clients_number - 1)
@@ -1233,6 +1223,7 @@ def timebased_run(lock_memlogind, memlogind_counter, phase, start_MT, end_MT, MT
   global interval
   global temp_log
   global output_file
+  global list_urllist
 
   # Create pools with input concurrency
   list_pool = []
@@ -1250,10 +1241,7 @@ def timebased_run(lock_memlogind, memlogind_counter, phase, start_MT, end_MT, MT
                                   no_graph, queue, concurrency))
   post_processing.start()
 
-  lock_first = Lock()
   counter_first = Value('i', 0)
-
-  lock_second = Lock()
   counter_second = Value('i', 0)
 
   dict_counters_mp = {
@@ -1277,6 +1265,9 @@ def timebased_run(lock_memlogind, memlogind_counter, phase, start_MT, end_MT, MT
     util.record_start_time(start_MT)
   print ("[%s] Started processing of requests with concurrency of [%d] for [%d] seconds" % (util.get_current_time(), int(concurrency), int(MT_interval)))
 
+  print("=================================== len(list_employee_idlist) = ", len(list_employee_idlist))
+  print("=================================== len(list_urllist) = ", len(list_urllist))
+
   worker_process = []
   for idx_process in range(0, clients_number):
     worker_process +=\
@@ -1284,7 +1275,8 @@ def timebased_run(lock_memlogind, memlogind_counter, phase, start_MT, end_MT, MT
                args=(idx_process, start, ramp, list_pool[idx_process], queue, dict_counters_mp,
                      phase, start_MT, end_MT, MT_req,
                      array_tot_get, array_tot_post, array_tot_del,
-                     execute_request_request_index, execute_request_url_index))]
+                     execute_request_request_index, execute_request_url_index,
+                     list_employee_idlist[idx_process], list_urllist[idx_process]))]
     worker_process[idx_process].start()
 
   print("[%s] All requests done." % (util.get_current_time()))
@@ -1343,7 +1335,8 @@ def requestBasedRun(lock_memlogind, memlogind_counter, phase, start_MT, end_MT, 
           print "Exiting Measuring time window"
       execute_request(pool, None, phase, start_MT, end_MT, MT_req,
                       idx_process, array_tot_get, array_tot_post, array_tot_del,
-                      execute_request_request_index, execute_request_url_index)
+                      execute_request_request_index, execute_request_url_index,
+                      employee_idlist, urllist)
   #Wait for request threads to finish
   lock_memlogind.acquire()
   memlogind_counter.value += 1
