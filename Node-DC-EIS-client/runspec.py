@@ -1130,7 +1130,7 @@ def safe_wait(counter_mp, value):
       if counter_mp.value == value:
         break;
 
-def do_work_time_based(idx_process, start, ramp, pool, queue, dict_counters_mp, can_stop_mp,
+def do_work_time_based(idx_process, start, ramp, pool, queue, dict_counters_mp,
                        phase, start_MT, end_MT, MT_req,
                        array_tot_get, array_tot_post, array_tot_del,
                        execute_request_request_index, execute_request_url_index):
@@ -1261,8 +1261,6 @@ def timebased_run(lock_memlogind, memlogind_counter, phase, start_MT, end_MT, MT
     'second': counter_second
   }
 
-  can_stop_mp = Value('i', 0)
-
   start = Value('d', 0.0)
 
   print ("[%s] Starting time based run." % (util.get_current_time()))
@@ -1283,7 +1281,7 @@ def timebased_run(lock_memlogind, memlogind_counter, phase, start_MT, end_MT, MT
   for idx_process in range(0, clients_number):
     worker_process +=\
       [Process(target=do_work_time_based,
-               args=(idx_process, start, ramp, list_pool[idx_process], queue, dict_counters_mp, can_stop_mp,
+               args=(idx_process, start, ramp, list_pool[idx_process], queue, dict_counters_mp,
                      phase, start_MT, end_MT, MT_req,
                      array_tot_get, array_tot_post, array_tot_del,
                      execute_request_request_index, execute_request_url_index))]
@@ -1296,8 +1294,7 @@ def timebased_run(lock_memlogind, memlogind_counter, phase, start_MT, end_MT, MT
   lock_memlogind.release()
   for idx_process in range(0, clients_number):
     list_pool[idx_process].waitall()
-  with can_stop_mp.get_lock():
-    can_stop_mp.value = 1
+
   for idx_process in range(0, clients_number):
     worker_process[idx_process].join()
   queue.put(('EXIT',))
