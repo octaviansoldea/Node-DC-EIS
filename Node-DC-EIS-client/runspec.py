@@ -1201,6 +1201,7 @@ def do_work_time_based(idx_process, start, ramp, pool, queue, dict_counters_mp,
       counter_first_mp.value += 1
     safe_wait(counter_first_mp, clients_number)
 
+  if idx_process == 0:
     node_dc_eis_testurls.clean_up_log(queue)
 
 
