@@ -79,7 +79,6 @@ keep_on_running = True # Initializing keep_on_running to True
 ramp = 1
 
 log =""
-log_lock = Lock()
 
 log_dir =""
 interval = 10
@@ -989,7 +988,6 @@ def send_request():
   # Output: Generates per request details in a templog file
   """
   global log
-  global log_lock
   global after_run
   global log_dir
   global interval
@@ -1110,7 +1108,7 @@ def execute_request(pool, queue, phase, start_MT, end_MT, MT_req,
             'text/html' if use_html else 'application/json',
             queue,
             http_headers,
-            log_lock
+            idx_process
           ]
 
         if(int(concurrency) == 1):
@@ -1213,8 +1211,6 @@ def do_work_time_based(idx_process, start, ramp, pool, queue, dict_counters_mp, 
       counter_first_mp.value += 1
     safe_wait(counter_first_mp, clients_number)
 
-  if idx_process == 0:
-    safe_wait(can_stop_mp, 1)
     node_dc_eis_testurls.clean_up_log(queue)
 
 
@@ -1233,7 +1229,6 @@ def timebased_run(lock_memlogind, memlogind_counter, phase, start_MT, end_MT, MT
   global MT_interval
   global rampup_rampdown
   global log
-  global log_lock
   global log_dir
   global interval
   global temp_log
