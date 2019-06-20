@@ -923,8 +923,6 @@ def collect_meminfo(memlogind_counter):
       if memlogind_counter.value == clients_number:
         print
         ""
-        print("========================log_dir = ", log_dir)
-        print("========================os.path.join(log_dir,memlogfile) = ", os.path.join(log_dir, memlogfile))
         elapsed_time = time.time() - start_time
         with open(os.path.join(log_dir, memlogfile + ".csv"), 'wb') as f:
           writer = csv.writer(f)
@@ -1264,9 +1262,6 @@ def timebased_run(memlogind_counter, phase, start_MT, end_MT, MT_req,
     print("Entering Measuring time window : [%s]" % (util.get_current_time()))
     util.record_start_time(start_MT)
   print ("[%s] Started processing of requests with concurrency of [%d] for [%d] seconds" % (util.get_current_time(), int(concurrency), int(MT_interval)))
-
-  print("=================================== len(list_employee_idlist) = ", len(list_employee_idlist))
-  print("=================================== len(list_urllist) = ", len(list_urllist))
 
   worker_process = []
   for idx_process in range(0, clients_number):

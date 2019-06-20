@@ -83,15 +83,6 @@ def process_data(temp_file,temp_log,results_dir,file_cnt,interval):
     #         all the templog files are present
     # Output: Generates a summary output file with all the processed data
     """
-
-    print("=========================================process_data")
-    print("temp_file = ", temp_file,
-          " temp_log = ", temp_log,
-          " results_dir = ", results_dir,
-          " file_cnt = ", file_cnt,
-          " interval ", interval)
-
-
     col_st = 3 #column number of start time
     col_et = 4 #column number of end time
     col_rt = 5 #column number of response time

@@ -39,7 +39,7 @@ fi
 USERNAME=`whoami`
 remote_work_dir="$HOME/Node-DC-EIS-multiple/multiple-instance-`date +%Y%m%d%H%M%S`"
 log_dir_name=instance_log
-num_instances=1 #must match with the number of blocks in the input_config_file
+num_instances=2 #must match with the number of blocks in the input_config_file
 cpu_count=0 #cpu count for node server
 no_graph=true #if true, output graphs will not be generated
 
@@ -628,14 +628,9 @@ start_clients(){
     logfile="${log_dir}/${current_time}-instance${i}.log"
     print_master_log "Starting client instance$i"
     client_config_file="config${i}.json"
-    echo "================================== 0: temp_clientdir=$temp_clientdir"
     if $no_graph ; then
-      echo "================================== 1: client_config_file = ${client_config_file} no_graph=$no_graph i = $i run_dir = $run_dir logfile = $logfile"
-      exit
       python -u runspec.py -f "${client_config_file}" -m -id "$i" -dir "$run_dir" --nograph >> "$logfile" 2>&1 &
     else
-      echo "================================== 2: client_config_file = ${client_config_file} no_graph=$no_graph i = $i run_dir = $run_dir logfile = $logfile"
-      #exit
       python -u runspec.py -f "${client_config_file}" -m -id "$i" -dir "$run_dir" >> "$logfile" 2>&1 &
     fi
     sleep 1
