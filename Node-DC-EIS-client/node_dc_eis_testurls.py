@@ -28,6 +28,7 @@ requests = eventlet.import_patched('requests.__init__')
 import requests
 from collections import OrderedDict 
 import util
+from multiprocessing import Lock
 
 headers = {'content-type': 'application/json'}
 post_datalist = []
@@ -83,7 +84,7 @@ def get_ip(hostname):
   ip_cache[hostname] = ip
   return ip
 
-def get_url(url, url_type, request_num, phase, accept_header, http_headers):
+def get_url(url, url_type, request_num, accept_header, http_headers, phase, start_MT, end_MT, MT_req):
   """
   # Desc  : Function to send get requests to the server. Type 1 is get requests
   #         handles 3 types of GET requests based on ID, last_name and zipcode.
@@ -139,7 +140,7 @@ Connection: close\r
     response_time = end - start
     total_length = calculate_len_get(headers)
 
-  util.printlog(log,phase,url_type,request_num,url,start,end,response_time,total_length)
+  util.printlog(log, phase, start_MT, end_MT, MT_req,url_type,request_num,url,start,end,response_time,total_length)
   return 
 
 def post_function(url, post_data):
@@ -183,7 +184,7 @@ def post_function(url, post_data):
     print e
   return r
 
-def post_url(url, url_type, request_num, phase):
+def post_url(url, url_type, request_num, phase, start_MT, end_MT, MT_req):
   """
   # Desc  : Function to send post requests to the server. Type 2 is post requests
   #         Retries if the post request fails
@@ -235,10 +236,10 @@ def post_url(url, url_type, request_num, phase):
       print post_data
       exit(1)
 
-  util.printlog(log,phase,url_type,request_num,url,start,end,response_time,total_length)
+  util.printlog(log, phase, start_MT, end_MT, MT_req,url_type,request_num,url,start,end,response_time,total_length)
   return
 
-def delete_url(url, url_type, request_num, phase):
+def delete_url(url, url_type, request_num, phase, start_MT, end_MT, MT_req):
   """
   # Desc  : Function to send delete requests to the server. Type 3 is delete requests
   #         also captures the data record being deleted and saves it in a list(post/_datalist)
@@ -293,7 +294,7 @@ def delete_url(url, url_type, request_num, phase):
     response_time = end-start
     total_length = calculate_len_postdel(r)
 
-  util.printlog(log,phase,url_type,request_num,url,start,end,response_time,total_length)
+  util.printlog(log, phase, start_MT, end_MT, MT_req,url_type,request_num,url,start,end,response_time,total_length)
   return
 
 def calculate_len_get(headers):
@@ -336,9 +337,9 @@ def calculate_len_postdel(response):
   total_length = header_len + content_len
   return total_length
 
-def open_log(log_dir):
+def open_log(log_dir, idx_process):
   try:
-      log = open(os.path.join(log_dir, "tempfile_" + str(file_cnt)), "w")
+      log = open(os.path.join(log_dir, "tempfile_" + str(file_cnt) + "_" + str(idx_process)), "w")
   except IOError:
       print "[%s] Could not open templog file for writing." % (util.get_current_time())
       sys.exit(1)
@@ -352,8 +353,8 @@ def clean_up_log(queue):
   queue.put(('PROCESS', log.name, file_cnt))
   log = None
 
-def main_entry(url, request_num, url_type, log_dir, phase, interval,
-               run_mode, temp_log, accept_header, queue, http_headers):
+def main_entry(url, request_num, url_type, log_dir, phase, start_MT, end_MT, MT_req, interval,
+               run_mode, temp_log, accept_header, queue, http_headers, idx_process):
   """
   # Desc  : main entry function to determine the type of url - GET,POST or DELETE
   #         creates log file which captures per request data depending on the type of run.
@@ -369,8 +370,8 @@ def main_entry(url, request_num, url_type, log_dir, phase, interval,
   global log
   if run_mode == 1:
     if not init:
-      start_time = time.time();
-      log = open_log(log_dir)
+      start_time = time.time()
+      log = open_log(log_dir, idx_process)
       init = True
 
     if time.time() - start_time > float(interval):
@@ -379,8 +380,7 @@ def main_entry(url, request_num, url_type, log_dir, phase, interval,
       file_cnt += 1
       start_time = time.time()
 
-      log = open_log(log_dir)
-
+      log = open_log(log_dir, idx_process)
       old_log.close()
       queue.put(('PROCESS', old_log.name, old_file_cnt))
 
@@ -392,9 +392,9 @@ def main_entry(url, request_num, url_type, log_dir, phase, interval,
       sys.exit(1)
 
   if url_type == 1:
-    get_url(url, url_type, request_num, phase, accept_header, http_headers)
+    get_url(url, url_type, request_num, accept_header, http_headers, phase, start_MT, end_MT, MT_req)
   if url_type == 2:
-    post_url(url, url_type, request_num, phase)
+    post_url(url, url_type, request_num, phase, start_MT, end_MT, MT_req)
   if url_type == 3:
-    delete_url(url, url_type, request_num, phase)
+    delete_url(url, url_type, request_num, phase, start_MT, end_MT, MT_req)
 

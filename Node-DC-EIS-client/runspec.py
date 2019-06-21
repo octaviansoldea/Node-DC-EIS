@@ -49,6 +49,7 @@ from process_time_based_output import process_time_based_output
 import traceback
 import urllib
 import util
+from multiprocessing import Process, Lock, Value, Array
 
 """
 #  All globals
@@ -60,7 +61,9 @@ MT_interval = 100
 concurrency = 200
 rampup_rampdown = 10
 total_urls = 100
+clients_number = 1
 urllist= []
+list_urllist = []
 memstat_interval = 3
 memlogfile = "memlog_file"
 no_graph = False #if set to True, output graphs will not be generated.
@@ -74,7 +77,7 @@ postid_index = 0
 keep_on_running = True # Initializing keep_on_running to True
 #default set to 1. Set it to 0 if ramp up rampdown phase is not required
 ramp = 1
-phase = "MT"
+
 log =""
 log_dir =""
 interval = 10
@@ -104,9 +107,6 @@ zip_count = 0
 count = 0
 post_count = 0
 delete_count = 0
-tot_get = 0
-tot_post = 0
-tot_del = 0
 
 """
 #  Application specific globals
@@ -164,7 +164,6 @@ def setup():
   global appName
   global cpuCount
   global directory
-  global memlogind
   try:
     r = requests.get(cpuinfo_url)
   except requests.exceptions.RequestException as e:
@@ -192,7 +191,6 @@ def setup():
   print "Starting "+version + " in "+appName + " Mode"
   if(instance_id):
     directory = directory+"-"+appName+"-"+instance_id
-    memlogind = memlogind+"-"+instance_id
   else:
     directory = directory+"-"+appName
   if(rundir):
@@ -324,6 +322,7 @@ def main():
         global url_file
         global temp_log
         global total_urls
+        global clients_number
         global dbrecord_count
         global idurl_ratio
         global nameurl_ratio
@@ -398,6 +397,9 @@ def main():
 
           if "total_urls" in json_data["client_params"]:
             total_urls = json_data["client_params"]["total_urls"]
+
+          if "clients_number" in json_data["client_params"]:
+            clients_number = json_data["client_params"]["clients_number"]
 
           if "html" in json_data["client_params"]:
             use_html = json_data["client_params"]["html"]
@@ -566,6 +568,7 @@ def run_printenv(log):
 
   print >> log, "# concurrency    :"+ str(concurrency) +"  (Default value = 200)"
   print >> log, "#  URLs  :" +str(total_urls) +"  (Default value = 100)"
+  print >> log, "#  URLs  :" +str(clients_number) +"  (Default value = 1)"
   print >> log, "# Use HTML: %s (Default value = False)" % use_html
   if http_headers:
     print >> log, "# Extra HTTP headers:"
@@ -607,6 +610,9 @@ def get_data():
   else:
     generate_urls_from_db()
 
+  global list_urllist
+  list_urllist = split_in_quasi_equal_lists(urllist, clients_number)
+
   if multiple_instance:
     util.create_indicator_file(rundir,"loaddb_done", instance_id,"")
     util.check_startfile(rundir)
@@ -615,6 +621,10 @@ def get_data():
 
 def generate_urls_from_list():
   urls_count = len(get_endpoints_urls)
+
+  if clients_number != 1:
+    raise NotImplementedError('There is no support in generate_urls_from_list for clients_number != 1')
+
   for ii in xrange(int(total_urls)):
     urls_idx = random.randint(0, urls_count - 1)
     urllist.append({
@@ -623,7 +633,15 @@ def generate_urls_from_list():
 
   print "[%s] Building list of Urls done." % util.get_current_time()
 
+def split_in_quasi_equal_lists(list_input, parts_number):
+  list_array = np.array(list_input)
+  list_array_split = np.array_split(list_array, parts_number)
+  list_output = [el.tolist() for el in list_array_split]
+
+  return list_output
+
 def generate_urls_from_db():
+  global list_employee_idlist
   global employee_idlist
 
   print ("[%s] Build list of employee IDs." % (util.get_current_time()))
@@ -659,8 +677,7 @@ def generate_urls_from_db():
     print "Exception -- IDs or names or zipcodes not returned.Make sure application server is up and running.\n Make sure Database Server is up and running and \n Make sure client can communicate with server"
     sys.exit(1)
 
-  eidlist = re.findall(r'"([^"]*)"', ids)
-  employee_idlist.extend(eidlist)
+  employee_idlist = re.findall(r'"([^"]*)"', ids)
   name_matches = re.findall(r'"([^"]*)"', names)
   s = zipcode.strip("\"[]\"")
   zip_matches = s.split(',')
@@ -682,7 +699,13 @@ def generate_urls_from_db():
   zip_number = int(math.ceil((int(get_urlcount)*float(float(zipurl_ratio)/100))))
 
   #start building the url list
-  builddburllist(employee_idlist, id_number, name_matches, name_number , zip_matches, zip_number, post_urlcount,delete_urlcount)
+  list_employee_idlist =\
+    split_in_quasi_equal_lists(employee_idlist, clients_number);
+
+  employee_idlist = []
+  employee_idlist = [y for x in list_employee_idlist for y in x]
+
+  builddburllist(id_number, name_matches, name_number, zip_matches, zip_number, post_urlcount, delete_urlcount)
 
 def run_loaddb():
   """
@@ -696,6 +719,8 @@ def run_loaddb():
   loaddbparams = {'count': int(dbrecord_count), 'zipcode': int(zip_dbratio), 'lastname' : int(name_dbratio) }
   try:
     res = requests.get(loaddb_url, params=loaddbparams, timeout=300)
+    import curlify
+    print("[", curlify.to_curl(res.request), "]")
   except requests.exceptions.RequestException as e:
     #catastrophic error. bail.
     print("[%s] Loading database failed. Exiting" % (util.get_current_time()))
@@ -743,7 +768,7 @@ def check_db():
 
   return checkdb_dict
 
-def builddburllist(employee_idlist, id_number, name_matches, name_number, zip_matches, zip_number,post_urlcount, delete_urlcount):
+def builddburllist(id_number, name_matches, name_number, zip_matches, zip_number,post_urlcount, delete_urlcount):
   """
   # Desc  :Function build list of URLs with enough randomness for realistic
   #        behavior
@@ -751,7 +776,6 @@ def builddburllist(employee_idlist, id_number, name_matches, name_number, zip_ma
   # Output:Return current date and time in specific format for all log messages
   """
   print ("[%s] Building list of Urls" % (util.get_current_time()))
-  id_usedlist = []
   global id_count
   global name_count
   global zip_count
@@ -760,10 +784,8 @@ def builddburllist(employee_idlist, id_number, name_matches, name_number, zip_ma
   global delete_count
 
   while(True):
-      random_id = random.randint(0,len(employee_idlist)-1)
       random_name = random.randint(0,len(name_matches)-1)
       random_zip = random.randint(0,len(zip_matches)-1)
-      random_delete = random.randint(0,delete_urlcount)
 
       if(id_count < id_number):
         urls = server_url + "employees/id/"
@@ -797,21 +819,22 @@ def builddburllist(employee_idlist, id_number, name_matches, name_number, zip_ma
   print ("[%s] Building list of Urls done." % (util.get_current_time()))
   return
 
-def print_ramp(request_index):
+def print_ramp(request_index, phase):
   """
   # Desc  : Function to print live progress status
   # Input : None
   # Output: None
   """
-  global phase
   if request_index <= int(rampup_rampdown):
-    phase = "RU"
+    with phase.get_lock():
+      phase.value = 0
     if request_index == 1:
       print ("[%s] Entering Rampup window" % (util.get_current_time()))
     if request_index == int(rampup_rampdown):
       print ("[%s] Exiting Rampup window" % (util.get_current_time()))
   elif (request_index - int(rampup_rampdown)) <= int(request):
-    phase = "MT"
+    with phase.get_lock():
+      phase.value = 1
     if (request_index - int(rampup_rampdown)) == 1:
       print ("[%s] Entering Measuring time window" % (util.get_current_time()))
       print "In progress..."
@@ -836,14 +859,15 @@ def print_ramp(request_index):
     if (request_index - int(rampup_rampdown)) == int(request):
       print ("[%s] Exiting Measuring time window" % (util.get_current_time()))
   elif request_index - (int(rampup_rampdown)+int(request)) <= int(rampup_rampdown):
-    phase = "RD"
+    with phase.get_lock():
+      phase.value = 2
     if request_index - (int(rampup_rampdown)+int(request)) == 1:
       print ("[%s] Entering Rampdown window" % (util.get_current_time()))
     if request_index - (int(rampup_rampdown)+int(request)) == int(rampup_rampdown):
       print ("[%s] Exiting Rampdown window" % (util.get_current_time()))
   return
 
-def getNextEmployeeId():
+def getNextEmployeeId(small_employee_idlist):
   """
   # Desc  : Function returns next employee id from the global list
   # Input : Global employee list
@@ -851,30 +875,26 @@ def getNextEmployeeId():
   """
   global idmatches_index
   global postid_index
-  global employee_idlist
-  if len(employee_idlist) > 0:
-    if idmatches_index >= len(employee_idlist):
+  if len(small_employee_idlist) > 0:
+    if idmatches_index >= len(small_employee_idlist):
         idmatches_index = 0
-    return_id = employee_idlist[idmatches_index]
+    return_id = small_employee_idlist[idmatches_index]
     idmatches_index = idmatches_index + 1
   else:
     print "Fatal error-No more IDs available. Aborting"
     sys.exit(1)
   return return_id
 
-def removeEmployeeId(ids):
+def removeEmployeeId(small_employee_idlist, ids):
   """
   # Desc  : Function deletes employeeid from global list after successful
   #         DELETE request
   # Input : input employeeid and global list
   # Output: None
   """
-  id_found = False
-  global employee_idlist
-  if len(employee_idlist) > 0:
-    if ids in employee_idlist:
-      employee_idlist.remove(ids)
-      id_found = True
+  if len(small_employee_idlist) > 0:
+    if ids in small_employee_idlist:
+      small_employee_idlist.remove(ids)
     else:
       print "Id not found. Aborting"
       sys.exit(1)
@@ -883,28 +903,33 @@ def removeEmployeeId(ids):
     sys.exit(1)
   return
 
-def collect_meminfo():
+def collect_meminfo(memlogind_counter):
   """
   # Desc  : Function to collect server memory usage stats by periodic server
   #         requests
   # Input : None.
   # Output: Collects data in dictionary, which will be process later.
   """
+
+  global clients_number
+
   rss_list =[]
   heapTotlist =[]
   heapUsedlist = []
   print ("[%s] Starting meminfo collection process " % (util.get_current_time()))
   start_time = time.time()
   while True:
-    if os.path.exists(os.path.join(log_dir,memlogind)):
-      print ""
-      os.remove(os.path.join(log_dir,memlogind))
-      elapsed_time = time.time() - start_time
-      with open(os.path.join(log_dir,memlogfile+".csv"), 'wb') as f:
-        writer = csv.writer(f)
-        writer.writerows(izip(list(range(0, int(elapsed_time), 1)),rss_list,heapTotlist,heapUsedlist))
-        print ("[%s] Exiting meminfo collection process" % (util.get_current_time()))
-        sys.exit(0)
+    with memlogind_counter.get_lock():
+
+      if memlogind_counter.value == clients_number:
+        print ""
+        elapsed_time = time.time() - start_time
+        with open(os.path.join(log_dir, memlogfile + ".csv"), 'wb') as f:
+          writer = csv.writer(f)
+          writer.writerows(izip(list(range(0, int(elapsed_time), 1)), rss_list, heapTotlist, heapUsedlist))
+          print("[%s] Exiting meminfo collection process" % (util.get_current_time()))
+          sys.exit(0)
+
     try:
       r = requests.get(meminfo_url)
     except requests.exceptions.RequestException as e:
@@ -947,9 +972,6 @@ def send_request():
   global temp_log
   global output_file
 
-  #Create a pool with input concurrency
-  pool = eventlet.GreenPool(int(concurrency))
-
   print ("[%s] Creating temporary log file" % (util.get_current_time()))
   if(rundir):
     log_dir = os.path.join(rundir,os.path.join(results_dir,directory))
@@ -970,24 +992,53 @@ def send_request():
     print >> log, "Mode,Request_num,URL,StartTime,EndTime,Response_time"
 
   log.flush()
-  mem_process = Process(target = collect_meminfo)
+
+  memlogind_counter = Value('i', 0)
+
+  mem_process = Process(target = collect_meminfo, args=(memlogind_counter, ))
   mem_process.start()
+
+  """
+  phase =
+    0 "RU"
+    1 "MT"
+    2 "RD"
+    1 "SD"
+  """
+  phase = Value('i', 1)
+  start_MT = Value('d', 0.0)
+  end_MT = Value('d', 0.0)
+  MT_req = Value('i', 0)
+
+  array_tot_get = Array('i', clients_number)
+  array_tot_post = Array('i', clients_number)
+  array_tot_del = Array('i', clients_number)
+
+  execute_request_request_index = Value('i', 1)
+  execute_request_url_index = Array('i', clients_number)
 
   ## Start time based run
   if run_mode == 1:
-    timebased_run(pool)
+    timebased_run(memlogind_counter, phase, start_MT, end_MT, MT_req,
+                  array_tot_get, array_tot_post, array_tot_del,
+                  execute_request_request_index, execute_request_url_index)
   ## Start requests based run
   else:
-    requestBasedRun(pool)
+    requestBasedRun(memlogind_counter, phase, start_MT, end_MT, MT_req,
+                    0, array_tot_get, array_tot_post, array_tot_del,
+                    execute_request_request_index, execute_request_url_index)
 
   mem_process.join()
   if not no_db:
     after_run = check_db()
-  print_summary()
+  print_summary(sum(array_tot_get), sum(array_tot_post), sum(array_tot_del))
   log.close()
   return
 
-def execute_request(pool, queue=None):
+def execute_request(pool, queue, phase, start_MT, end_MT, MT_req,
+                    idx_process, array_tot_get, array_tot_post, array_tot_del,
+                    execute_request_request_index, execute_request_url_index,
+                    small_employee_idlist, small_list_urllist):
     """
     # Desc  : Creates threadpool for concurrency, and sends concurrent requests
     #         to server for the input #requests or based on time interval.
@@ -996,67 +1047,163 @@ def execute_request(pool, queue=None):
     # Input : threadpool with concurrency number of threads
     # Output: Generates per request details in a templog file
     """
-    global after_run
-    global phase
-    global MT_interval
-    global rampup_rampdown
-    global tot_get
-    global tot_post
-    global tot_del
     global log_dir
     try:
-        if(execute_request.url_index >= len(urllist)):
-           execute_request.url_index = 0
-        url = urllist[execute_request.url_index]['url']
+        if(execute_request_url_index[idx_process] >= len(small_list_urllist)):
+           execute_request_url_index[idx_process] = 0
+        url_index = execute_request_url_index[idx_process]
+        url = list_urllist[idx_process][url_index]['url']
         parsed = urlparse.urlparse(url)
 
-        if(urllist[execute_request.url_index]['method']== 'GET'):
+        if(small_list_urllist[url_index]['method']== 'GET'):
           url_type = 1
-          tot_get = tot_get + 1
+          array_tot_get[idx_process] += 1
           if parsed.path == "/employees/id/":
-              ids = getNextEmployeeId()
+              ids = getNextEmployeeId(small_employee_idlist)
               url = url+ids
-        if(urllist[execute_request.url_index]['method']== 'POST'):
+        if(small_list_urllist[url_index]['method']== 'POST'):
           url_type = 2
-          tot_post = tot_post +1
-        if(urllist[execute_request.url_index]['method']== 'DELETE'):
+          array_tot_post[idx_process] += 1
+        if(small_list_urllist[url_index]['method']== 'DELETE'):
           url_type = 3
-          tot_del = tot_del +1
-          ids = getNextEmployeeId()
-          removeEmployeeId(ids)
+          array_tot_del[idx_process] += 1
+          ids = getNextEmployeeId(small_employee_idlist)
+          removeEmployeeId(small_employee_idlist, ids)
           url = url+ids
 
         main_entry_args = [
             url,
-            execute_request.request_index,
+            execute_request_request_index.value,
             url_type,
             log_dir,
             phase,
+            start_MT,
+            end_MT,
+            MT_req,
             interval,
             run_mode,
             temp_log,
             'text/html' if use_html else 'application/json',
             queue,
-            http_headers
+            http_headers,
+            idx_process
           ]
 
         if(int(concurrency) == 1):
           main_entry(*main_entry_args)
         else:
           pool.spawn_n(main_entry, *main_entry_args)
-        execute_request.request_index += 1
-        execute_request.url_index += 1
+        with execute_request_request_index.get_lock():
+          execute_request_request_index.value += 1
+        execute_request_url_index[idx_process] += 1
 
     except Exception, err:
       traceback.print_exc()
       print Exception, err
       sys.exit(1)
 
-# Initializing the Static Variables of the Function , which are used as counter
-execute_request.request_index = 1
-execute_request.url_index = 0
+def safe_wait(counter_mp, value):
+  while True:
+    with counter_mp.get_lock():
+      if counter_mp.value == value:
+        break;
 
-def timebased_run(pool):
+def do_work_time_based(idx_process, start, ramp, pool, queue, dict_counters_mp,
+                       phase, start_MT, end_MT, MT_req,
+                       array_tot_get, array_tot_post, array_tot_del,
+                       execute_request_request_index, execute_request_url_index,
+                       small_employee_idlist, small_list_urllist,
+                       memlogind_counter):
+
+  global MT_interval
+  global rampup_rampdown
+  global log_dir
+  global output_file
+  global clients_number
+
+  counter_first_mp = dict_counters_mp['first']
+  counter_second_mp = dict_counters_mp['second']
+
+  if ramp:
+
+    while(time.time()-start.value < int(rampup_rampdown)):
+      execute_request(pool, queue, phase, start_MT, end_MT, MT_req,
+                      idx_process, array_tot_get, array_tot_post, array_tot_del,
+                      execute_request_request_index, execute_request_url_index,
+                      small_employee_idlist, small_list_urllist)
+
+    if idx_process == 0:
+      safe_wait(counter_first_mp, clients_number - 1)
+      print ("[%s] Exiting RampUp time window." %(util.get_current_time()))
+      with phase.get_lock():
+        phase.value = 1
+      util.record_start_time(start_MT)
+      start.value=time.time()
+      print ("[%s] Entering Measuring time window." %(util.get_current_time()))
+
+    with counter_first_mp.get_lock():
+      counter_first_mp.value += 1
+    safe_wait(counter_first_mp, clients_number)
+
+    while(time.time()-start.value < int(MT_interval)):
+      execute_request(pool, queue, phase, start_MT, end_MT, MT_req,
+                      idx_process, array_tot_get, array_tot_post, array_tot_del,
+                      execute_request_request_index, execute_request_url_index,
+                      small_employee_idlist, small_list_urllist)
+
+    if idx_process == 0:
+      safe_wait(counter_second_mp, clients_number - 1)
+      print ("[%s] Exiting Measuring time window." %(util.get_current_time()))
+      util.record_end_time(end_MT)
+      with phase.get_lock():
+        phase.value = 2
+      util.calculate_throughput(log_dir, concurrency, cpuCount, start_MT, end_MT, MT_req)
+      start.value=time.time()
+      print ("[%s] Entering RampDown time window." %(util.get_current_time()))
+
+    with counter_second_mp.get_lock():
+      counter_second_mp.value += 1
+    safe_wait(counter_second_mp, clients_number)
+
+    while(time.time()-start.value < int(rampup_rampdown)):
+      execute_request(pool, queue, phase, start_MT, end_MT, MT_req,
+                      idx_process, array_tot_get, array_tot_post, array_tot_del,
+                      execute_request_request_index, execute_request_url_index,
+                      small_employee_idlist, small_list_urllist)
+
+    if idx_process == 0:
+      print ("[%s] Exiting RampDown time window." %(util.get_current_time()))
+      with phase.get_lock():
+        phase.value = 3
+      print ("[%s] Entering ShutDown time window." %(util.get_current_time()))
+
+  else:
+
+    while(time.time()-start.value < int(MT_interval)):
+      execute_request(pool, queue, phase, start_MT, end_MT, MT_req,
+                      idx_process, array_tot_get, array_tot_post, array_tot_del,
+                      execute_request_request_index, execute_request_url_index,
+                      small_employee_idlist, small_list_urllist)
+
+    if idx_process == 0:
+      safe_wait(counter_first_mp, clients_number - 1)
+      print ("[%s] Exiting Measuring time window." %(util.get_current_time()))
+      with phase.get_lock():
+        phase.value = 3
+      print ("[%s] Entering ShutDown time window." %(util.get_current_time()))
+
+    with counter_first_mp.get_lock():
+      counter_first_mp.value += 1
+    safe_wait(counter_first_mp, clients_number)
+
+  node_dc_eis_testurls.clean_up_log(queue)
+  with memlogind_counter.get_lock():
+    memlogind_counter.value += 1
+
+
+def timebased_run(memlogind_counter, phase, start_MT, end_MT, MT_req,
+                  array_tot_get, array_tot_post, array_tot_del,
+                  execute_request_request_index, execute_request_url_index):
   """
   # Desc  : Function to start time based run
   #         Uses threadpool for concurrency, and sends concurrent requests
@@ -1066,21 +1213,20 @@ def timebased_run(pool):
   # Input : threadpool with concurrency number of threads
   # Output: Generates per request details in a templog file
   """
-  global after_run
-  global phase
   global MT_interval
   global rampup_rampdown
-  global tot_get
-  global tot_post
-  global tot_del
   global log
   global log_dir
   global interval
   global temp_log
   global output_file
-  global processing_complete
-  url_index = 0
-  request_index = 0 # Initializing the Request Counter to 0
+  global list_urllist
+
+  # Create pools with input concurrency
+  list_pool = []
+  for idx_process in range(0, clients_number):
+    pool = eventlet.GreenPool(int(concurrency))
+    list_pool.append(pool)
 
   queue = Queue()
 
@@ -1091,54 +1237,56 @@ def timebased_run(pool):
                                   memlogfile, instance_id, multiple_instance,
                                   no_graph, queue, concurrency))
   post_processing.start()
+
+  counter_first = Value('i', 0)
+  counter_second = Value('i', 0)
+
+  dict_counters_mp = {
+    'first': counter_first,
+    'second': counter_second
+  }
+
+  start = Value('d', 0.0)
+
   print ("[%s] Starting time based run." % (util.get_current_time()))
   if ramp:
-    phase = "RU"
-    start = time.time()
+    with phase.get_lock():
+      phase.value = 0
+    start.value = time.time()
     print("[%s] Entering RampUp time window." % (util.get_current_time()))
   else:
-    phase = "MT"
-    start = time.time()
+    with phase.get_lock():
+      phase.value = 1
+    start.value = time.time()
     print("Entering Measuring time window : [%s]" % (util.get_current_time()))
-    util.record_start_time()
+    util.record_start_time(start_MT)
   print ("[%s] Started processing of requests with concurrency of [%d] for [%d] seconds" % (util.get_current_time(), int(concurrency), int(MT_interval)))
-  if ramp:
-          while(time.time()-start < int(rampup_rampdown)):
-              execute_request(pool, queue)
-          print ("[%s] Exiting RampUp time window." %(util.get_current_time()))
-          phase = "MT"
-          util.record_start_time()
-          start=time.time()
-          print ("[%s] Entering Measuring time window." %(util.get_current_time()))
-          while(time.time()-start < int(MT_interval)):
-              execute_request(pool, queue)
-          print ("[%s] Exiting Measuring time window." %(util.get_current_time()))
-          util.record_end_time()
-          phase = "RD"
-          util.calculate_throughput(log_dir,concurrency,cpuCount)
-          start=time.time()
-          print ("[%s] Entering RampDown time window." %(util.get_current_time()))
-          while(time.time()-start < int(rampup_rampdown)):
-              execute_request(pool, queue)
-          print ("[%s] Exiting RampDown time window." %(util.get_current_time()))
-          phase = "SD"
-          print ("[%s] Entering ShutDown time window." %(util.get_current_time()))
-  else:
-          while(time.time()-start < int(MT_interval)):
-              execute_request(pool, queue)
-          print ("[%s] Exiting Measuring time window." %(util.get_current_time()))
-          phase = "SD"
-          print ("[%s] Entering ShutDown time window." %(util.get_current_time()))
+
+  worker_process = []
+  for idx_process in range(0, clients_number):
+    worker_process +=\
+      [Process(target=do_work_time_based,
+               args=(idx_process, start, ramp, list_pool[idx_process], queue, dict_counters_mp,
+                     phase, start_MT, end_MT, MT_req,
+                     array_tot_get, array_tot_post, array_tot_del,
+                     execute_request_request_index, execute_request_url_index,
+                     list_employee_idlist[idx_process], list_urllist[idx_process],
+                     memlogind_counter))]
+    worker_process[idx_process].start()
+
   print("[%s] All requests done." % (util.get_current_time()))
-  file = open(os.path.join(log_dir,memlogind),"w")
-  file.close()
-  pool.waitall()
-  node_dc_eis_testurls.clean_up_log(queue)
-  processing_complete = True
+
+  for idx_process in range(0, clients_number):
+    list_pool[idx_process].waitall()
+
+  for idx_process in range(0, clients_number):
+    worker_process[idx_process].join()
   queue.put(('EXIT',))
   post_processing.join()
 
-def requestBasedRun(pool):
+def requestBasedRun(memlogind_counter, phase, start_MT, end_MT, MT_req,
+                    idx_process, array_tot_get, array_tot_post, array_tot_del,
+                    execute_request_request_index, execute_request_url_index):
   """
   # Desc  : Function to start Requests based run
   #         Creates threadpool for concurrency, and sends concurrent requests
@@ -1148,16 +1296,19 @@ def requestBasedRun(pool):
   # Input : threadpool with concurrency number of threads
   # Output: Generates per request details in a templog file
   """
-  global tot_get
-  global tot_post
-  global tot_del
-  global phase
+
+  # Create a pool with input concurrency
+  pool = eventlet.GreenPool(int(concurrency))
+
+  global clients_number
+  if clients_number != 1:
+    raise NotImplementedError('There is no support in requestBasedRun for clients_number != 1')
+
   global after_run
 
   print ("[%s] Starting request based run." % (util.get_current_time()))
   print ("[%s] Requests:[%d], Concurrency:[%d]" % (util.get_current_time(), int(request), int(concurrency)))
 
-  url_index = 0
   if ramp:
     loop = int(request)+(2*int(rampup_rampdown))
   else:
@@ -1166,21 +1317,28 @@ def requestBasedRun(pool):
   for request_index in range(1, (loop+1)):
       #check for rampup and rampdown requests
       if ramp:
-         print_ramp(request_index)
+         print_ramp(request_index, phase)
       else:
-        phase = "MT"
+        with phase.get_lock():
+          phase.value = 1
         if request_index == 1:
           print "Entering Measuring time window"
         if request_index == int(request):
           print "Exiting Measuring time window"
-      execute_request(pool)
+      execute_request(pool, None, phase, start_MT, end_MT, MT_req,
+                      idx_process, array_tot_get, array_tot_post, array_tot_del,
+                      execute_request_request_index, execute_request_url_index,
+                      employee_idlist, urllist)
   #Wait for request threads to finish
-  file = open(os.path.join(log_dir,memlogind),"w")
-  file.close()
+  with memlogind_counter.get_lock():
+    memlogind_counter.value += 1
   pool.waitall()
 
   print ("[%s] All requests done." % (util.get_current_time()))
   post_process_request_based_data(temp_log,output_file)
+
+  with memlogind_counter.get_lock():
+    memlogind_counter.value += 1
   return
 
 def post_process_request_based_data(temp_log,output_file):
@@ -1262,7 +1420,7 @@ def post_process_request_based_data(temp_log,output_file):
   return
 
 #Generates a summary output file which contains hardware,software OS and Client details
-def print_summary():
+def print_summary(tot_get, tot_post, tot_del):
   """
   # Desc  : Print summary of the run
   # Input : None

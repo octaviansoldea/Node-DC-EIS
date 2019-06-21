@@ -1,14 +1,15 @@
 {
 "client_params": 
   { 
-    "MT_interval" : "300",
+    "MT_interval" : "10",
     "request" : "10000",
     "concurrency" : "100",
     "run_mode" : "1",
     "interval" : "10",
     "rampup_rampdown": "25",
     "tempfile":"RTdata",
-    "total_urls":"100",
+    "total_urls":"200",
+    "clients_number": 2,
     "server_ipaddress":"localhost",
     "server_port":"9000",
     "root_endpoint": "/",
