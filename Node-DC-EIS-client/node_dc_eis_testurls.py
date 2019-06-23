@@ -184,7 +184,7 @@ def post_function(url, post_data):
     print e
   return r
 
-def post_url(url, url_type, request_num, phase, start_MT, end_MT, MT_req):
+def post_url(url, url_type, request_num, phase, start_MT, end_MT, MT_req, small_employee_idlist):
   """
   # Desc  : Function to send post requests to the server. Type 2 is post requests
   #         Retries if the post request fails
@@ -194,7 +194,6 @@ def post_url(url, url_type, request_num, phase, start_MT, end_MT, MT_req):
   """
   global start_time
   global file_cnt
-  global employee_idlist
   global timeout_err
   global conn_err
   global http_err
@@ -208,6 +207,7 @@ def post_url(url, url_type, request_num, phase, start_MT, end_MT, MT_req):
     post_data = post_datalist[0]
   else:
     static_post = static_post + 1
+
   start = time.time()
   end = start
   for i in range(100):
@@ -230,7 +230,7 @@ def post_url(url, url_type, request_num, phase, start_MT, end_MT, MT_req):
     exit(1)
   if result:
     if 'result' in result:
-      employee_idlist.append(result['result']['employee_id'])
+      small_employee_idlist.append(result['result']['employee_id'])
     else:
       print("Exception -- Post did not return a valid employee_id")
       print post_data
@@ -354,7 +354,7 @@ def clean_up_log(queue):
   log = None
 
 def main_entry(url, request_num, url_type, log_dir, phase, start_MT, end_MT, MT_req, interval,
-               run_mode, temp_log, accept_header, queue, http_headers, idx_process):
+               run_mode, temp_log, accept_header, queue, http_headers, idx_process, small_employee_idlist):
   """
   # Desc  : main entry function to determine the type of url - GET,POST or DELETE
   #         creates log file which captures per request data depending on the type of run.
@@ -394,7 +394,7 @@ def main_entry(url, request_num, url_type, log_dir, phase, start_MT, end_MT, MT_
   if url_type == 1:
     get_url(url, url_type, request_num, accept_header, http_headers, phase, start_MT, end_MT, MT_req)
   if url_type == 2:
-    post_url(url, url_type, request_num, phase, start_MT, end_MT, MT_req)
+    post_url(url, url_type, request_num, phase, start_MT, end_MT, MT_req, small_employee_idlist)
   if url_type == 3:
     delete_url(url, url_type, request_num, phase, start_MT, end_MT, MT_req)
 

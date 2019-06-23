@@ -719,8 +719,6 @@ def run_loaddb():
   loaddbparams = {'count': int(dbrecord_count), 'zipcode': int(zip_dbratio), 'lastname' : int(name_dbratio) }
   try:
     res = requests.get(loaddb_url, params=loaddbparams, timeout=300)
-    import curlify
-    print("[", curlify.to_curl(res.request), "]")
   except requests.exceptions.RequestException as e:
     #catastrophic error. bail.
     print("[%s] Loading database failed. Exiting" % (util.get_current_time()))
@@ -782,6 +780,7 @@ def builddburllist(id_number, name_matches, name_number, zip_matches, zip_number
   global count
   global post_count
   global delete_count
+  global urllist
 
   while(True):
       random_name = random.randint(0,len(name_matches)-1)
@@ -816,6 +815,8 @@ def builddburllist(id_number, name_matches, name_number, zip_matches, zip_number
       count = id_count + name_count + zip_count + post_count + delete_count
       if(count == int(total_urls)):
         break
+
+  random.shuffle(urllist)
   print ("[%s] Building list of Urls done." % (util.get_current_time()))
   return
 
@@ -881,7 +882,7 @@ def getNextEmployeeId(small_employee_idlist):
     return_id = small_employee_idlist[idmatches_index]
     idmatches_index = idmatches_index + 1
   else:
-    print "Fatal error-No more IDs available. Aborting"
+    print "getNextEmployeeId Fatal error-No more IDs available. Aborting"
     sys.exit(1)
   return return_id
 
@@ -899,7 +900,7 @@ def removeEmployeeId(small_employee_idlist, ids):
       print "Id not found. Aborting"
       sys.exit(1)
   else:
-    print "Fatal error-No more IDs available. Aborting"
+    print "removeEmployeeId Fatal error-No more IDs available. Aborting"
     sys.exit(1)
   return
 
@@ -1017,16 +1018,18 @@ def send_request():
   execute_request_request_index = Value('i', 1)
   execute_request_url_index = Array('i', clients_number)
 
+  print_lock = Lock()
+
   ## Start time based run
   if run_mode == 1:
     timebased_run(memlogind_counter, phase, start_MT, end_MT, MT_req,
                   array_tot_get, array_tot_post, array_tot_del,
-                  execute_request_request_index, execute_request_url_index)
+                  execute_request_request_index, execute_request_url_index, print_lock)
   ## Start requests based run
   else:
     requestBasedRun(memlogind_counter, phase, start_MT, end_MT, MT_req,
                     0, array_tot_get, array_tot_post, array_tot_del,
-                    execute_request_request_index, execute_request_url_index)
+                    execute_request_request_index, execute_request_url_index, print_lock)
 
   mem_process.join()
   if not no_db:
@@ -1038,7 +1041,7 @@ def send_request():
 def execute_request(pool, queue, phase, start_MT, end_MT, MT_req,
                     idx_process, array_tot_get, array_tot_post, array_tot_del,
                     execute_request_request_index, execute_request_url_index,
-                    small_employee_idlist, small_list_urllist):
+                    small_employee_idlist, small_list_urllist, print_lock):
     """
     # Desc  : Creates threadpool for concurrency, and sends concurrent requests
     #         to server for the input #requests or based on time interval.
@@ -1052,7 +1055,7 @@ def execute_request(pool, queue, phase, start_MT, end_MT, MT_req,
         if(execute_request_url_index[idx_process] >= len(small_list_urllist)):
            execute_request_url_index[idx_process] = 0
         url_index = execute_request_url_index[idx_process]
-        url = list_urllist[idx_process][url_index]['url']
+        url = small_list_urllist[url_index]['url']
         parsed = urlparse.urlparse(url)
 
         if(small_list_urllist[url_index]['method']== 'GET'):
@@ -1086,7 +1089,8 @@ def execute_request(pool, queue, phase, start_MT, end_MT, MT_req,
             'text/html' if use_html else 'application/json',
             queue,
             http_headers,
-            idx_process
+            idx_process,
+            small_employee_idlist
           ]
 
         if(int(concurrency) == 1):
@@ -1113,7 +1117,7 @@ def do_work_time_based(idx_process, start, ramp, pool, queue, dict_counters_mp,
                        array_tot_get, array_tot_post, array_tot_del,
                        execute_request_request_index, execute_request_url_index,
                        small_employee_idlist, small_list_urllist,
-                       memlogind_counter):
+                       memlogind_counter, print_lock):
 
   global MT_interval
   global rampup_rampdown
@@ -1130,7 +1134,7 @@ def do_work_time_based(idx_process, start, ramp, pool, queue, dict_counters_mp,
       execute_request(pool, queue, phase, start_MT, end_MT, MT_req,
                       idx_process, array_tot_get, array_tot_post, array_tot_del,
                       execute_request_request_index, execute_request_url_index,
-                      small_employee_idlist, small_list_urllist)
+                      small_employee_idlist, small_list_urllist, print_lock)
 
     if idx_process == 0:
       safe_wait(counter_first_mp, clients_number - 1)
@@ -1149,7 +1153,7 @@ def do_work_time_based(idx_process, start, ramp, pool, queue, dict_counters_mp,
       execute_request(pool, queue, phase, start_MT, end_MT, MT_req,
                       idx_process, array_tot_get, array_tot_post, array_tot_del,
                       execute_request_request_index, execute_request_url_index,
-                      small_employee_idlist, small_list_urllist)
+                      small_employee_idlist, small_list_urllist, print_lock)
 
     if idx_process == 0:
       safe_wait(counter_second_mp, clients_number - 1)
@@ -1169,7 +1173,7 @@ def do_work_time_based(idx_process, start, ramp, pool, queue, dict_counters_mp,
       execute_request(pool, queue, phase, start_MT, end_MT, MT_req,
                       idx_process, array_tot_get, array_tot_post, array_tot_del,
                       execute_request_request_index, execute_request_url_index,
-                      small_employee_idlist, small_list_urllist)
+                      small_employee_idlist, small_list_urllist, print_lock)
 
     if idx_process == 0:
       print ("[%s] Exiting RampDown time window." %(util.get_current_time()))
@@ -1183,7 +1187,7 @@ def do_work_time_based(idx_process, start, ramp, pool, queue, dict_counters_mp,
       execute_request(pool, queue, phase, start_MT, end_MT, MT_req,
                       idx_process, array_tot_get, array_tot_post, array_tot_del,
                       execute_request_request_index, execute_request_url_index,
-                      small_employee_idlist, small_list_urllist)
+                      small_employee_idlist, small_list_urllist, print_lock)
 
     if idx_process == 0:
       safe_wait(counter_first_mp, clients_number - 1)
@@ -1200,10 +1204,9 @@ def do_work_time_based(idx_process, start, ramp, pool, queue, dict_counters_mp,
   with memlogind_counter.get_lock():
     memlogind_counter.value += 1
 
-
 def timebased_run(memlogind_counter, phase, start_MT, end_MT, MT_req,
                   array_tot_get, array_tot_post, array_tot_del,
-                  execute_request_request_index, execute_request_url_index):
+                  execute_request_request_index, execute_request_url_index, print_lock):
   """
   # Desc  : Function to start time based run
   #         Uses threadpool for concurrency, and sends concurrent requests
@@ -1271,7 +1274,7 @@ def timebased_run(memlogind_counter, phase, start_MT, end_MT, MT_req,
                      array_tot_get, array_tot_post, array_tot_del,
                      execute_request_request_index, execute_request_url_index,
                      list_employee_idlist[idx_process], list_urllist[idx_process],
-                     memlogind_counter))]
+                     memlogind_counter, print_lock))]
     worker_process[idx_process].start()
 
   print("[%s] All requests done." % (util.get_current_time()))
@@ -1286,7 +1289,7 @@ def timebased_run(memlogind_counter, phase, start_MT, end_MT, MT_req,
 
 def requestBasedRun(memlogind_counter, phase, start_MT, end_MT, MT_req,
                     idx_process, array_tot_get, array_tot_post, array_tot_del,
-                    execute_request_request_index, execute_request_url_index):
+                    execute_request_request_index, execute_request_url_index, print_lock):
   """
   # Desc  : Function to start Requests based run
   #         Creates threadpool for concurrency, and sends concurrent requests
@@ -1328,7 +1331,7 @@ def requestBasedRun(memlogind_counter, phase, start_MT, end_MT, MT_req,
       execute_request(pool, None, phase, start_MT, end_MT, MT_req,
                       idx_process, array_tot_get, array_tot_post, array_tot_del,
                       execute_request_request_index, execute_request_url_index,
-                      employee_idlist, urllist)
+                      employee_idlist, urllist, print_lock)
   #Wait for request threads to finish
   with memlogind_counter.get_lock():
     memlogind_counter.value += 1
