@@ -41,8 +41,7 @@ import zipfile
 import platform
 from itertools import izip
 from threading import Thread,Timer
-from multiprocessing import Process
-from multiprocessing import Queue
+from multiprocessing import Process, Queue, Lock, Value, Array
 import node_dc_eis_testurls
 from node_dc_eis_testurls import *
 from process_time_based_output import process_time_based_output
@@ -81,7 +80,6 @@ processing_complete = False
 instance_id = 0
 rundir = ""
 multiple_instance = False
-memlogind = "requestsdone.ind"
 cpuCount = -1
 run_mode = 1
 
@@ -163,7 +161,6 @@ def setup():
   global appName
   global cpuCount
   global directory
-  global memlogind
   try:
     r = requests.get(cpuinfo_url)
   except requests.exceptions.RequestException as e:
@@ -191,7 +188,6 @@ def setup():
   print "Starting "+version + " in "+appName + " Mode"
   if(instance_id):
     directory = directory+"-"+appName+"-"+instance_id
-    memlogind = memlogind+"-"+instance_id
   else:
     directory = directory+"-"+appName
   if(rundir):
@@ -908,7 +904,7 @@ def removeEmployeeId(ids):
     sys.exit(1)
   return
 
-def collect_meminfo():
+def collect_meminfo(memlogind_counter, clients_number):
   """
   # Desc  : Function to collect server memory usage stats by periodic server
   #         requests
@@ -921,15 +917,17 @@ def collect_meminfo():
   print ("[%s] Starting meminfo collection process " % (util.get_current_time()))
   start_time = time.time()
   while True:
-    if os.path.exists(os.path.join(log_dir,memlogind)):
-      print ""
-      os.remove(os.path.join(log_dir,memlogind))
-      elapsed_time = time.time() - start_time
-      with open(os.path.join(log_dir,memlogfile+".csv"), 'wb') as f:
-        writer = csv.writer(f)
-        writer.writerows(izip(list(range(0, int(elapsed_time), 1)),rss_list,heapTotlist,heapUsedlist))
-        print ("[%s] Exiting meminfo collection process" % (util.get_current_time()))
-        sys.exit(0)
+    with memlogind_counter.get_lock():
+
+      if memlogind_counter.value == clients_number:
+        print ""
+        elapsed_time = time.time() - start_time
+        with open(os.path.join(log_dir, memlogfile + ".csv"), 'wb') as f:
+          writer = csv.writer(f)
+          writer.writerows(izip(list(range(0, int(elapsed_time), 1)), rss_list, heapTotlist, heapUsedlist))
+          print("[%s] Exiting meminfo collection process" % (util.get_current_time()))
+          sys.exit(0)
+
     try:
       r = requests.get(meminfo_url)
     except requests.exceptions.RequestException as e:
@@ -995,15 +993,18 @@ def send_request(input_params, working_memory):
     print >> log, "Mode,Request_num,URL,StartTime,EndTime,Response_time"
 
   log.flush()
-  mem_process = Process(target = collect_meminfo)
+
+  memlogind_counter = Value('i', 0)
+
+  mem_process = Process(target = collect_meminfo, args=(memlogind_counter, input_params["clients_number"]))
   mem_process.start()
 
   ## Start time based run
   if run_mode == 1:
-    timebased_run(pool, input_params, working_memory)
+    timebased_run(memlogind_counter, pool, input_params, working_memory)
   ## Start requests based run
   else:
-    requestBasedRun(pool, input_params, working_memory)
+    requestBasedRun(memlogind_counter, pool, input_params, working_memory)
 
   mem_process.join()
   if not no_db:
@@ -1084,7 +1085,7 @@ def execute_request(pool, queue, working_memory):
 execute_request.request_index = 1
 execute_request.url_index = 0
 
-def timebased_run(pool, input_params, working_memory):
+def timebased_run(memlogind_counter, pool, input_params, working_memory):
   """
   # Desc  : Function to start time based run
   #         Uses threadpool for concurrency, and sends concurrent requests
@@ -1158,15 +1159,15 @@ def timebased_run(pool, input_params, working_memory):
           phase = "SD"
           print ("[%s] Entering ShutDown time window." %(util.get_current_time()))
   print("[%s] All requests done." % (util.get_current_time()))
-  file = open(os.path.join(log_dir,memlogind),"w")
-  file.close()
+  with memlogind_counter.get_lock():
+    memlogind_counter.value += input_params["clients_number"]
   pool.waitall()
   node_dc_eis_testurls.clean_up_log(queue)
   processing_complete = True
   queue.put(('EXIT',))
   post_processing.join()
 
-def requestBasedRun(pool, input_params, working_memory):
+def requestBasedRun(memlogind_counter, pool, input_params, working_memory):
   """
   # Desc  : Function to start Requests based run
   #         Creates threadpool for concurrency, and sends concurrent requests
@@ -1207,8 +1208,8 @@ def requestBasedRun(pool, input_params, working_memory):
           print "Exiting Measuring time window"
       execute_request(pool, None, working_memory)
   #Wait for request threads to finish
-  file = open(os.path.join(log_dir,memlogind),"w")
-  file.close()
+  with memlogind_counter.get_lock():
+    memlogind_counter.value += input_params["clients_number"]
   pool.waitall()
 
   print ("[%s] All requests done." % (util.get_current_time()))
