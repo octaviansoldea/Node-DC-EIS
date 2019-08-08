@@ -40,8 +40,8 @@ fi
 USERNAME=`whoami`
 remote_work_dir="$HOME/Node-DC-EIS-multiple/multiple-instance-`date +%Y%m%d%H%M%S`"
 log_dir_name=instance_log
-num_instances=2 #must match with the number of blocks in the input_config_file
-cpu_count=0 #cpu count for node server 
+num_instances=1 #must match with the number of blocks in the input_config_file
+cpu_count=2 #cpu count for node server
 no_graph=true #if true, output graphs will not be generated
 
 ##################################################################################
@@ -624,6 +624,7 @@ check_server(){
 start_clients(){
   srv_instances=$1
   cd $temp_clientdir
+  echo "$temp_clientdir = $temp_clientdir"
   for i in `seq 1 ${srv_instances}`
   do
     logfile="${log_dir}/${current_time}-instance${i}.log"
@@ -631,19 +632,27 @@ start_clients(){
     client_config_file="config${i}.json"
     if $no_graph ; then
       python -u runspec.py -f "${client_config_file}" -m -id "$i" -dir "$run_dir" --nograph >> "$logfile" 2>&1 &
+      echo "client_config_file = $client_config_file"
+      echo "i = $i"
+      echo "run_dir = $run_dir"
+      echo "logfile = $logfile"
     else
-      python -u runspec.py -f "${client_config_file}" -m -id "$i" -dir "$run_dir" >> "$logfile" 2>&1 &
+      #python -u runspec.py -f "${client_config_file}" -m -id "$i" -dir "$run_dir" >> "$logfile" 2>&1 &
+      echo "else"
     fi
     sleep 1
   done
   create_startfile "$srv_instances"
+  exit 0
 }
 
 #function creates synchronization start file. The execution of requests starts after this file is generated
 create_startfile(){
+  echo "create_startfile"
   instances=$1
   while true
-  do 
+  do
+    echo "create_startfile loop"
     number_files_found=0
     for i in `seq 1 $instances`
     do 

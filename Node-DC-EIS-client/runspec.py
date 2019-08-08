@@ -226,6 +226,8 @@ def main():
   get_endpoints = None
   no_db = False
 
+  input_params = {}
+
   print ("[%s] Parsing arguments." % (util.get_current_time()))
   parser = argparse.ArgumentParser()
   parser.add_argument('-id', '--instanceID', dest="id",
@@ -399,6 +401,9 @@ def main():
           if "total_urls" in json_data["client_params"]:
             total_urls = json_data["client_params"]["total_urls"]
 
+          if "clients_number" in json_data["client_params"]:
+            input_params["clients_number"] = json_data["client_params"]["clients_number"]
+
           if "html" in json_data["client_params"]:
             use_html = json_data["client_params"]["html"]
 
@@ -543,10 +548,10 @@ def main():
   setup()
 
   #Build URL queue
-  get_data()
+  get_data(input_params)
   return
 
-def run_printenv(log):
+def run_printenv(log, input_params):
   """
   # Desc  : Function prints setup environment details
   # Input : None
@@ -566,6 +571,7 @@ def run_printenv(log):
 
   print >> log, "# concurrency    :"+ str(concurrency) +"  (Default value = 200)"
   print >> log, "#  URLs  :" +str(total_urls) +"  (Default value = 100)"
+  print >> log, "#  URLs  :" +str(input_params["clients_number"]) +"  (Default value = 1)"
   print >> log, "# Use HTML: %s (Default value = False)" % use_html
   if http_headers:
     print >> log, "# Extra HTTP headers:"
@@ -587,7 +593,7 @@ def run_printenv(log):
     print >> log, "#  unique zips:%s  (Default value = 25)" % zip_dbratio
 
 
-def get_data():
+def get_data(input_params):
   """
   # Desc  : Main entry point to do multiple operations, such as
   #         Populate database (send remote request)
@@ -611,7 +617,7 @@ def get_data():
     util.create_indicator_file(rundir,"loaddb_done", instance_id,"")
     util.check_startfile(rundir)
   #Send requests
-  send_request()
+  send_request(input_params)
 
 def generate_urls_from_list():
   urls_count = len(get_endpoints_urls)
@@ -934,7 +940,7 @@ def collect_meminfo():
     heapTotlist.append(0)
   return
 
-def send_request():
+def send_request(input_params):
   """
   # Desc  : Main function initiates requests to server
   # Input : List of EmployeeId
@@ -962,7 +968,7 @@ def send_request():
     return None
 
   #Print environment
-  run_printenv(log)
+  run_printenv(log, input_params)
 
   if run_mode == 1:
     print >> log, "File#,MinResp,MeanResp,95percentile,99percentile,MaxResp,Startime,Endtime,#RUReq,#MTReq,#RDReq,TotalReq,Throughput"
@@ -975,15 +981,15 @@ def send_request():
 
   ## Start time based run
   if run_mode == 1:
-    timebased_run(pool)
+    timebased_run(pool, input_params)
   ## Start requests based run
   else:
-    requestBasedRun(pool)
+    requestBasedRun(pool, input_params)
 
   mem_process.join()
   if not no_db:
     after_run = check_db()
-  print_summary()
+  print_summary(input_params)
   log.close()
   return
 
@@ -1056,7 +1062,7 @@ def execute_request(pool, queue=None):
 execute_request.request_index = 1
 execute_request.url_index = 0
 
-def timebased_run(pool):
+def timebased_run(pool, input_params):
   """
   # Desc  : Function to start time based run
   #         Uses threadpool for concurrency, and sends concurrent requests
@@ -1138,7 +1144,7 @@ def timebased_run(pool):
   queue.put(('EXIT',))
   post_processing.join()
 
-def requestBasedRun(pool):
+def requestBasedRun(pool, input_params):
   """
   # Desc  : Function to start Requests based run
   #         Creates threadpool for concurrency, and sends concurrent requests
@@ -1153,6 +1159,10 @@ def requestBasedRun(pool):
   global tot_del
   global phase
   global after_run
+
+  if input_params["clients_number"] != 1:
+    raise NotImplementedError('There is no support in requestBasedRun for clients_number != 1')
+
 
   print ("[%s] Starting request based run." % (util.get_current_time()))
   print ("[%s] Requests:[%d], Concurrency:[%d]" % (util.get_current_time(), int(request), int(concurrency)))
@@ -1262,7 +1272,7 @@ def post_process_request_based_data(temp_log,output_file):
   return
 
 #Generates a summary output file which contains hardware,software OS and Client details
-def print_summary():
+def print_summary(input_params):
   """
   # Desc  : Print summary of the run
   # Input : None
@@ -1279,7 +1289,7 @@ def print_summary():
     return None
   #Print environment
   print >> processed_file, "\n====Client information===="
-  run_printenv(processed_file)
+  run_printenv(processed_file, input_params)
   try:
     r = requests.get(cpuinfo_url)
   except requests.exceptions.RequestException as e:
