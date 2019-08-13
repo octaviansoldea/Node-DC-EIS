@@ -1211,6 +1211,7 @@ def requestBasedRun(pool, input_params, working_memory):
   print ("[%s] Starting request based run." % (util.get_current_time()))
   print ("[%s] Requests:[%d], Concurrency:[%d]" % (util.get_current_time(), int(request), int(concurrency)))
 
+  ramp = input_params["ramp"]
   rampup_rampdown = working_memory["rampup_rampdown"]
 
   url_index = 0
