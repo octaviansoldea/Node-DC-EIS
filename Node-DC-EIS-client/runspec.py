@@ -72,7 +72,6 @@ postid_index = 0
 keep_on_running = True # Initializing keep_on_running to True
 #default set to 1. Set it to 0 if ramp up rampdown phase is not required
 ramp = 1
-phase = "MT"
 log =""
 log_dir =""
 interval = 10
@@ -607,9 +606,9 @@ def get_data(input_params, working_memory):
     run_loaddb()
 
   if get_endpoints_urls:
-    urllist = generate_urls_from_list()
+    urllist = generate_urls_from_list(input_params)
   else:
-    urllist = generate_urls_from_db()
+    urllist = generate_urls_from_db(input_params)
 
   working_memory["urllist"] = urllist
   clients_number = input_params["clients_number"]
@@ -621,7 +620,10 @@ def get_data(input_params, working_memory):
   #Send requests
   send_request(input_params, working_memory)
 
-def generate_urls_from_list():
+def generate_urls_from_list(input_params):
+  if input_params["clients_number"] != 1:
+    raise NotImplementedError('There is no support in generate_urls_from_list for clients_number != 1')
+
   urllist = []
   urls_count = len(get_endpoints_urls)
   for ii in xrange(int(total_urls)):
@@ -640,7 +642,7 @@ def split_in_quasi_equal_lists(list_input, parts_number):
   list_output = [el.tolist() for el in list_array_split]
   return list_output
 
-def generate_urls_from_db():
+def generate_urls_from_db(input_params):
   global employee_idlist
 
   print ("[%s] Build list of employee IDs." % (util.get_current_time()))
@@ -781,10 +783,8 @@ def builddburllist(employee_idlist, id_number, name_matches, name_number, zip_ma
   global delete_count
 
   while(True):
-      random_id = random.randint(0,len(employee_idlist)-1)
       random_name = random.randint(0,len(name_matches)-1)
       random_zip = random.randint(0,len(zip_matches)-1)
-      random_delete = random.randint(0,delete_urlcount)
 
       if(id_count < id_number):
         urls = server_url + "employees/id/"
@@ -818,21 +818,24 @@ def builddburllist(employee_idlist, id_number, name_matches, name_number, zip_ma
   print ("[%s] Building list of Urls done." % (util.get_current_time()))
   return urllist
 
-def print_ramp(request_index):
+def print_ramp(request_index, working_memory):
   """
   # Desc  : Function to print live progress status
   # Input : None
   # Output: None
   """
-  global phase
   if request_index <= int(rampup_rampdown):
-    phase = "RU"
+    #phase = "RU"
+    with working_memory["phase"].get_lock():
+      working_memory["phase"].value = 0
     if request_index == 1:
       print ("[%s] Entering Rampup window" % (util.get_current_time()))
     if request_index == int(rampup_rampdown):
       print ("[%s] Exiting Rampup window" % (util.get_current_time()))
   elif (request_index - int(rampup_rampdown)) <= int(request):
-    phase = "MT"
+    #phase = "MT"
+    with working_memory["phase"].get_lock():
+      working_memory["phase"].value = 1
     if (request_index - int(rampup_rampdown)) == 1:
       print ("[%s] Entering Measuring time window" % (util.get_current_time()))
       print "In progress..."
@@ -857,7 +860,9 @@ def print_ramp(request_index):
     if (request_index - int(rampup_rampdown)) == int(request):
       print ("[%s] Exiting Measuring time window" % (util.get_current_time()))
   elif request_index - (int(rampup_rampdown)+int(request)) <= int(rampup_rampdown):
-    phase = "RD"
+    #phase = "RD"
+    with working_memory["phase"].get_lock():
+      working_memory["phase"].value = 2
     if request_index - (int(rampup_rampdown)+int(request)) == 1:
       print ("[%s] Entering Rampdown window" % (util.get_current_time()))
     if request_index - (int(rampup_rampdown)+int(request)) == int(rampup_rampdown):
@@ -994,17 +999,25 @@ def send_request(input_params, working_memory):
 
   log.flush()
 
-  memlogind_counter = Value('i', 0)
-
-  mem_process = Process(target = collect_meminfo, args=(memlogind_counter, input_params["clients_number"]))
+  working_memory["memlogind_counter"] = Value('i', 0)
+  mem_process = Process(target = collect_meminfo, args=(working_memory["memlogind_counter"], input_params["clients_number"]))
   mem_process.start()
+
+  """
+  phase =
+    0 "RU"
+    1 "MT"
+    2 "RD"
+    1 "SD"
+  """
+  working_memory["phase"] = Value('i', 1)
 
   ## Start time based run
   if run_mode == 1:
-    timebased_run(memlogind_counter, pool, input_params, working_memory)
+    timebased_run(pool, input_params, working_memory)
   ## Start requests based run
   else:
-    requestBasedRun(memlogind_counter, pool, input_params, working_memory)
+    requestBasedRun(pool, input_params, working_memory)
 
   mem_process.join()
   if not no_db:
@@ -1023,7 +1036,6 @@ def execute_request(pool, queue, working_memory):
     # Output: Generates per request details in a templog file
     """
     global after_run
-    global phase
     global MT_interval
     global rampup_rampdown
     global tot_get
@@ -1060,13 +1072,13 @@ def execute_request(pool, queue, working_memory):
             execute_request.request_index,
             url_type,
             log_dir,
-            phase,
             interval,
             run_mode,
             temp_log,
             'text/html' if use_html else 'application/json',
             queue,
-            http_headers
+            http_headers,
+            working_memory
           ]
 
         if(int(concurrency) == 1):
@@ -1085,7 +1097,7 @@ def execute_request(pool, queue, working_memory):
 execute_request.request_index = 1
 execute_request.url_index = 0
 
-def timebased_run(memlogind_counter, pool, input_params, working_memory):
+def timebased_run(pool, input_params, working_memory):
   """
   # Desc  : Function to start time based run
   #         Uses threadpool for concurrency, and sends concurrent requests
@@ -1159,15 +1171,15 @@ def timebased_run(memlogind_counter, pool, input_params, working_memory):
           phase = "SD"
           print ("[%s] Entering ShutDown time window." %(util.get_current_time()))
   print("[%s] All requests done." % (util.get_current_time()))
-  with memlogind_counter.get_lock():
-    memlogind_counter.value += input_params["clients_number"]
+  with working_memory["memlogind_counter"].get_lock():
+    working_memory["memlogind_counter"].value += input_params["clients_number"]
   pool.waitall()
   node_dc_eis_testurls.clean_up_log(queue)
   processing_complete = True
   queue.put(('EXIT',))
   post_processing.join()
 
-def requestBasedRun(memlogind_counter, pool, input_params, working_memory):
+def requestBasedRun(pool, input_params, working_memory):
   """
   # Desc  : Function to start Requests based run
   #         Creates threadpool for concurrency, and sends concurrent requests
@@ -1199,7 +1211,7 @@ def requestBasedRun(memlogind_counter, pool, input_params, working_memory):
   for request_index in range(1, (loop+1)):
       #check for rampup and rampdown requests
       if ramp:
-         print_ramp(request_index)
+         print_ramp(request_index, working_memory)
       else:
         phase = "MT"
         if request_index == 1:
@@ -1208,8 +1220,8 @@ def requestBasedRun(memlogind_counter, pool, input_params, working_memory):
           print "Exiting Measuring time window"
       execute_request(pool, None, working_memory)
   #Wait for request threads to finish
-  with memlogind_counter.get_lock():
-    memlogind_counter.value += input_params["clients_number"]
+  with working_memory["memlogind_counter"].get_lock():
+    working_memory["memlogind_counter"].value += input_params["clients_number"]
   pool.waitall()
 
   print ("[%s] All requests done." % (util.get_current_time()))

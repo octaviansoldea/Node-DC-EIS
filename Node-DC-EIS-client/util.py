@@ -46,7 +46,7 @@ def record_end_time():
   end_MT = time.time()
   
 
-def printlog(log,phase,url_type,request_num,url,start,end,response_time,total_length):
+def printlog(log, working_memory,url_type,request_num,url,start,end,response_time,total_length):
   """
   # Desc  : Function to Generate per request details in a templog file
   #         checks all the requests in MT phase are within the start and end time 
@@ -58,12 +58,18 @@ def printlog(log,phase,url_type,request_num,url,start,end,response_time,total_le
   # Output: Returns per request details in a templog file
   """
   global MT_req
-  if phase =="MT":
+
+  with working_memory["phase"].get_lock():
+    phase_local = working_memory["phase"].value
+
+  if phase_local ==1:
     if not ((start >= start_MT and end_MT == 0) or (end_MT > start_MT and end <= end_MT)):
-      phase = "RD"
+      phase_local = 2
     else:
       MT_req = MT_req + 1
-  log_str = phase+","+str(request_num)+","+str(url)+","+str(start)+","+str(end)+","+str(response_time)+","+str(total_length)+","+str(url_type)
+  options = {0: "RU", 1: "MT", 2: "RD", 3: "SD"}
+  phase_local = options[phase_local]
+  log_str = phase_local+","+str(request_num)+","+str(url)+","+str(start)+","+str(end)+","+str(response_time)+","+str(total_length)+","+str(url_type)
   print >> log, log_str
   log.flush()
 
@@ -113,4 +119,3 @@ def calculate_throughput(log_dir,concurrency,cpuCount):
   print >> log,"Throughput is:"+str(throughput)
   log.close()
 
-  
