@@ -33,7 +33,7 @@ percent99 = 0
 percent95 = 0
 total_bytes = 0
 
-def process_tempfile(results_dir, interval, rampup_rampdown, request,
+def process_tempfile(results_dir, interval, request,
                      temp_log, instance_id, multiple_instance, queue):
     """
     # Desc  : Function to process each intermediate files.
@@ -299,7 +299,7 @@ def post_process(temp_log,output_file,results_dir,interval,memlogfile,no_graph, 
         print("\nThe memory usage graph is located at  " +os.path.abspath(os.path.join(results_dir,'memory_usage.png')))
     print ("[%s] Plotting graphs done." % (util.get_current_time()))
   
-def process_time_based_output(results_dir,interval,rampup_rampdown,request,temp_log,output_file,memlogfile,instance_id,multiple_instance,no_graph, queue, concurrency):
+def process_time_based_output(results_dir,interval, request,temp_log,output_file,memlogfile,instance_id,multiple_instance,no_graph, queue, concurrency):
     """
     # Desc  : Main function which handles all the Output Processing
     #         This function is run by the Child Function
@@ -309,7 +309,7 @@ def process_time_based_output(results_dir,interval,rampup_rampdown,request,temp_
     # Output: None
     """
     print ("[%s] Starting process for post processing." % (util.get_current_time()))
-    process_tempfile(results_dir, interval, rampup_rampdown, request, temp_log,
+    process_tempfile(results_dir, interval, request, temp_log,
                      instance_id, multiple_instance, queue)
     if multiple_instance:
       util.create_indicator_file(os.path.dirname(os.path.dirname(results_dir)),"done_processing", instance_id, "")

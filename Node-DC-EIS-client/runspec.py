@@ -57,7 +57,6 @@ temp_log = "RTdata"
 request = 10000
 MT_interval = 100
 concurrency = 200
-rampup_rampdown = 10
 total_urls = 100
 memstat_interval = 3
 memlogfile = "memlog_file"
@@ -70,8 +69,6 @@ idmatches_index = 0
 postid_index = 0
 
 keep_on_running = True # Initializing keep_on_running to True
-#default set to 1. Set it to 0 if ramp up rampdown phase is not required
-ramp = 1
 log =""
 log_dir =""
 interval = 10
@@ -221,9 +218,12 @@ def main():
   no_db = False
 
   input_params = {}
+  #default set to 1. Set it to 0 if ramp up rampdown phase is not required
+  input_params["ramp"] = 1
 
   working_memory = {}
   working_memory["urllist"] = []
+  working_memory["rampup_rampdown"] = 10
 
   print ("[%s] Parsing arguments." % (util.get_current_time()))
   parser = argparse.ArgumentParser()
@@ -319,7 +319,6 @@ def main():
         global MT_interval
         global interval
         global concurrency
-        global rampup_rampdown
         global url_file
         global temp_log
         global total_urls
@@ -330,7 +329,6 @@ def main():
         global zip_dbratio
         global name_dbratio
         global url
-        global ramp
         global get_ratio
         global post_ratio
         global delete_ratio
@@ -366,9 +364,9 @@ def main():
             interval = int(json_data["client_params"]["interval"])
 
           if "rampup_rampdown" in json_data["client_params"]:
-            rampup_rampdown = int(json_data["client_params"]["rampup_rampdown"])
-            if(not int(rampup_rampdown) == 0):
-              ramp = 1
+            working_memory["rampup_rampdown"] = int(json_data["client_params"]["rampup_rampdown"])
+            if(not int(working_memory["rampup_rampdown"]) == 0):
+              working_memory["ramp"] = 1
 
           if "server_ipaddress" in json_data["client_params"]:
             server_ipaddress = json_data["client_params"]["server_ipaddress"]
@@ -486,8 +484,8 @@ def main():
     interval = int(options.interval)
 
   if(options.rampup_rampdown) :
-    rampup_rampdown = options.rampup_rampdown
-    ramp = 1
+    working_memory["rampup_rampdown"] = options.rampup_rampdown
+    input_params["ramp"] = 1
 
   if(options.run_mode) :
     run_mode = int(options.run_mode)
@@ -824,8 +822,9 @@ def print_ramp(request_index, working_memory):
   # Input : None
   # Output: None
   """
+  rampup_rampdown = working_memory["rampup_rampdown"]
   if request_index <= int(rampup_rampdown):
-    #phase = "RU"
+    # phase = "RU"
     with working_memory["phase"].get_lock():
       working_memory["phase"].value = 0
     if request_index == 1:
@@ -833,7 +832,7 @@ def print_ramp(request_index, working_memory):
     if request_index == int(rampup_rampdown):
       print ("[%s] Exiting Rampup window" % (util.get_current_time()))
   elif (request_index - int(rampup_rampdown)) <= int(request):
-    #phase = "MT"
+    # phase = "MT"
     with working_memory["phase"].get_lock():
       working_memory["phase"].value = 1
     if (request_index - int(rampup_rampdown)) == 1:
@@ -860,7 +859,7 @@ def print_ramp(request_index, working_memory):
     if (request_index - int(rampup_rampdown)) == int(request):
       print ("[%s] Exiting Measuring time window" % (util.get_current_time()))
   elif request_index - (int(rampup_rampdown)+int(request)) <= int(rampup_rampdown):
-    #phase = "RD"
+    # phase = "RD"
     with working_memory["phase"].get_lock():
       working_memory["phase"].value = 2
     if request_index - (int(rampup_rampdown)+int(request)) == 1:
@@ -1037,7 +1036,6 @@ def execute_request(pool, queue, working_memory):
     """
     global after_run
     global MT_interval
-    global rampup_rampdown
     global tot_get
     global tot_post
     global tot_del
@@ -1108,9 +1106,7 @@ def timebased_run(pool, input_params, working_memory):
   # Output: Generates per request details in a templog file
   """
   global after_run
-  global phase
   global MT_interval
-  global rampup_rampdown
   global tot_get
   global tot_post
   global tot_del
@@ -1127,18 +1123,24 @@ def timebased_run(pool, input_params, working_memory):
 
   #Spin Another Process to do processing of Data
   post_processing = Process(target=process_time_based_output,
-                            args=(log_dir, interval, rampup_rampdown,
+                            args=(log_dir, interval,
                                   MT_interval, temp_log, output_file,
                                   memlogfile, instance_id, multiple_instance,
                                   no_graph, queue, concurrency))
   post_processing.start()
   print ("[%s] Starting time based run." % (util.get_current_time()))
+  ramp = input_params["ramp"]
+  rampup_rampdown = working_memory["rampup_rampdown"]
   if ramp:
-    phase = "RU"
+    # phase = "RU"
+    with working_memory["phase"].get_lock():
+      working_memory["phase"].value = 0
     start = time.time()
     print("[%s] Entering RampUp time window." % (util.get_current_time()))
   else:
-    phase = "MT"
+    # phase = "MT"
+    with working_memory["phase"].get_lock():
+      phase.value = 1
     start = time.time()
     print("Entering Measuring time window : [%s]" % (util.get_current_time()))
     util.record_start_time()
@@ -1147,7 +1149,9 @@ def timebased_run(pool, input_params, working_memory):
           while(time.time()-start < int(rampup_rampdown)):
               execute_request(pool, queue, working_memory)
           print ("[%s] Exiting RampUp time window." %(util.get_current_time()))
-          phase = "MT"
+          # phase = "MT"
+          with working_memory["phase"].get_lock():
+            working_memory["phase"].value = 1
           util.record_start_time()
           start=time.time()
           print ("[%s] Entering Measuring time window." %(util.get_current_time()))
@@ -1155,20 +1159,26 @@ def timebased_run(pool, input_params, working_memory):
               execute_request(pool, queue, working_memory)
           print ("[%s] Exiting Measuring time window." %(util.get_current_time()))
           util.record_end_time()
-          phase = "RD"
+          # phase = "RD"
+          with working_memory["phase"].get_lock():
+            working_memory["phase"].value = 2
           util.calculate_throughput(log_dir,concurrency,cpuCount)
           start=time.time()
           print ("[%s] Entering RampDown time window." %(util.get_current_time()))
           while(time.time()-start < int(rampup_rampdown)):
               execute_request(pool, queue, working_memory)
           print ("[%s] Exiting RampDown time window." %(util.get_current_time()))
-          phase = "SD"
+          # phase = "SD"
+          with working_memory["phase"].get_lock():
+            working_memory["phase"].value = 3
           print ("[%s] Entering ShutDown time window." %(util.get_current_time()))
   else:
           while(time.time()-start < int(MT_interval)):
               execute_request(pool, queue, working_memory)
           print ("[%s] Exiting Measuring time window." %(util.get_current_time()))
-          phase = "SD"
+          # phase = "SD"
+          with working_memory["phase"].get_lock():
+            working_memory["phase"].value = 3
           print ("[%s] Entering ShutDown time window." %(util.get_current_time()))
   print("[%s] All requests done." % (util.get_current_time()))
   with working_memory["memlogind_counter"].get_lock():
@@ -1192,7 +1202,6 @@ def requestBasedRun(pool, input_params, working_memory):
   global tot_get
   global tot_post
   global tot_del
-  global phase
   global after_run
 
   if input_params["clients_number"] != 1:
@@ -1201,6 +1210,8 @@ def requestBasedRun(pool, input_params, working_memory):
 
   print ("[%s] Starting request based run." % (util.get_current_time()))
   print ("[%s] Requests:[%d], Concurrency:[%d]" % (util.get_current_time(), int(request), int(concurrency)))
+
+  rampup_rampdown = working_memory["rampup_rampdown"]
 
   url_index = 0
   if ramp:
@@ -1213,7 +1224,9 @@ def requestBasedRun(pool, input_params, working_memory):
       if ramp:
          print_ramp(request_index, working_memory)
       else:
-        phase = "MT"
+        # phase = "MT"
+        with working_memory["phase"].get_lock():
+          working_memory["phase"].value = 1
         if request_index == 1:
           print "Entering Measuring time window"
         if request_index == int(request):
