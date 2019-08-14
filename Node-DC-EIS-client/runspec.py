@@ -95,9 +95,6 @@ zip_count = 0
 count = 0
 post_count = 0
 delete_count = 0
-tot_get = 0
-tot_post = 0
-tot_del = 0
 
 """
 #  Application specific globals
@@ -1011,6 +1008,12 @@ def send_request(input_params, working_memory):
   working_memory["end_MT"] = Value('d', 0.0)
   working_memory["MT_req"] = Value('i', 0)
 
+  clients_number = input_params["clients_number"]
+
+  working_memory["array_tot_get"] = Array('i', clients_number)
+  working_memory["array_tot_post"] = Array('i', clients_number)
+  working_memory["array_tot_del"] = Array('i', clients_number)
+
   ## Start time based run
   if run_mode == 1:
     timebased_run(pool, input_params, working_memory)
@@ -1021,7 +1024,7 @@ def send_request(input_params, working_memory):
   mem_process.join()
   if not no_db:
     after_run = check_db()
-  print_summary(input_params)
+  print_summary(input_params, working_memory)
   log.close()
   return
 
@@ -1035,12 +1038,13 @@ def execute_request(pool, queue, input_params, working_memory):
     # Output: Generates per request details in a templog file
     """
     global after_run
-    global tot_get
-    global tot_post
-    global tot_del
     global log_dir
 
     urllist = working_memory["urllist"]
+
+    array_tot_get = working_memory["array_tot_get"]
+    array_tot_post = working_memory["array_tot_post"]
+    array_tot_del = working_memory["array_tot_del"]
 
     try:
         if(execute_request.url_index >= len(urllist)):
@@ -1050,16 +1054,16 @@ def execute_request(pool, queue, input_params, working_memory):
 
         if(urllist[execute_request.url_index]['method']== 'GET'):
           url_type = 1
-          tot_get = tot_get + 1
+          array_tot_get[0] += 1
           if parsed.path == "/employees/id/":
               ids = getNextEmployeeId()
               url = url+ids
         if(urllist[execute_request.url_index]['method']== 'POST'):
           url_type = 2
-          tot_post = tot_post +1
+          array_tot_post[0] += 1
         if(urllist[execute_request.url_index]['method']== 'DELETE'):
           url_type = 3
-          tot_del = tot_del +1
+          array_tot_del[0] += 1
           ids = getNextEmployeeId()
           removeEmployeeId(ids)
           url = url+ids
@@ -1105,9 +1109,6 @@ def timebased_run(pool, input_params, working_memory):
   # Output: Generates per request details in a templog file
   """
   global after_run
-  global tot_get
-  global tot_post
-  global tot_del
   global log
   global log_dir
   global temp_log
@@ -1196,9 +1197,6 @@ def requestBasedRun(pool, input_params, working_memory):
   # Input : threadpool with concurrency number of threads
   # Output: Generates per request details in a templog file
   """
-  global tot_get
-  global tot_post
-  global tot_del
   global after_run
 
   if input_params["clients_number"] != 1:
@@ -1318,7 +1316,7 @@ def post_process_request_based_data(temp_log,output_file):
   return
 
 #Generates a summary output file which contains hardware,software OS and Client details
-def print_summary(input_params):
+def print_summary(input_params, working_memory):
   """
   # Desc  : Print summary of the run
   # Input : None
@@ -1476,9 +1474,9 @@ def print_summary(input_params):
   else:
     print >> processed_file, "Total requests processed (MT): "+ str(request)
 
-  print >> processed_file, "Total number of get requests: " +str(tot_get)
-  print >> processed_file, "Total number of post requests: " +str(tot_post)
-  print >> processed_file, "Total number of delete requests: " +str(tot_del)
+  print >> processed_file, "Total number of get requests: " +str(sum(working_memory["array_tot_get"]))
+  print >> processed_file, "Total number of post requests: " +str(sum(working_memory["array_tot_post"]))
+  print >> processed_file, "Total number of delete requests: " +str(sum(working_memory["array_tot_del"]))
 
   processed_file.flush()
   processed_file.close()
