@@ -33,7 +33,7 @@ percent99 = 0
 percent95 = 0
 total_bytes = 0
 
-def process_tempfile(results_dir, interval, request,
+def process_tempfile(results_dir, input_params, working_memory,
                      temp_log, instance_id, multiple_instance, queue):
     """
     # Desc  : Function to process each intermediate files.
@@ -65,7 +65,7 @@ def process_tempfile(results_dir, interval, request,
 
       with temp_file:
         print "[%s] Processing Output File tempfile_[%d]." % (util.get_current_time(), file_cnt)
-        process_data(temp_file, temp_log, results_dir, file_cnt, interval)
+        process_data(temp_file, temp_log, results_dir, file_cnt, input_params, working_memory)
 
       if file_cnt == 0 and multiple_instance:
         util.create_indicator_file(os.path.dirname(os.path.dirname(results_dir)), "start_processing", instance_id, temp_log.name)
@@ -74,7 +74,7 @@ def process_tempfile(results_dir, interval, request,
     print ("[%s] Closing main templog file." % (util.get_current_time()))
     temp_log.close()    
 
-def process_data(temp_file,temp_log,results_dir,file_cnt,interval):
+def process_data(temp_file,temp_log,results_dir,file_cnt, input_params, working_memory):
     """
     # Desc  : Function which opens temporary files one by one and process 
     #         them for intermediate results
@@ -120,7 +120,7 @@ def process_data(temp_file,temp_log,results_dir,file_cnt,interval):
       url_count = Counter(url_type)
       print >> temp_log,str(file_cnt)+","+str(min_resp)+","+str(mean_resp)+","+str(percent95)+","+str(percent99)+","\
       +str(max_resp)+","+str(abs_start)+","+str(max(read_time))+","+str(RUreq)+","+str(MTreq)+","+str(RDreq)+","+str(len(res_arr))+","+\
-      str(len(res_arr)/int(interval))+","+str(mean_len)+","+str(url_count[1])+","+str(url_count[2])+","+str(url_count[3])+","+str(total_bytes)
+      str(len(res_arr)/int(input_params["interval"]))+","+str(mean_len)+","+str(url_count[1])+","+str(url_count[2])+","+str(url_count[3])+","+str(total_bytes)
     print ("[%s] Writing tempfile_[%d] data to summary file." % (util.get_current_time(), file_cnt))
     temp_log.flush()
 
@@ -155,7 +155,7 @@ def calculate(response_array):
     max_resp = np.amax(respa)
     mean_resp = np.mean(respa)
 
-def post_process(temp_log,output_file,results_dir,interval,memlogfile,no_graph, concurrency):
+def post_process(temp_log,output_file,results_dir, memlogfile,no_graph, concurrency, input_params, working_memory):
   """
   # Desc  : Main function for post processing of log file to summarize the results.
   #         Calculates MIN, MAX,MEAN response time, throughput, 
@@ -253,7 +253,7 @@ def post_process(temp_log,output_file,results_dir,interval,memlogfile,no_graph, 
 
     #plot graphs. Plots three graphs, latency graph, throughput graph and a memory usage graph. These files are stored in the result directory  
     print ("[%s] Plotting graphs." % (util.get_current_time()))
-    #write_arr = list(range(int(abs_start), int(end_time), interval))
+    #write_arr = list(range(int(abs_start), int(end_time), input_params["interval"]))
     plt.figure("Response Time")
     plt.grid(True)
     plt.plot(write_arr,min_arr, linewidth=1, linestyle='-', marker='.', color='b', label='Min resp')
@@ -299,7 +299,7 @@ def post_process(temp_log,output_file,results_dir,interval,memlogfile,no_graph, 
         print("\nThe memory usage graph is located at  " +os.path.abspath(os.path.join(results_dir,'memory_usage.png')))
     print ("[%s] Plotting graphs done." % (util.get_current_time()))
   
-def process_time_based_output(results_dir,interval, request,temp_log,output_file,memlogfile,instance_id,multiple_instance,no_graph, queue, concurrency):
+def process_time_based_output(results_dir, input_params, working_memory, temp_log,output_file,memlogfile,instance_id,multiple_instance,no_graph, queue, concurrency):
     """
     # Desc  : Main function which handles all the Output Processing
     #         This function is run by the Child Function
@@ -309,11 +309,11 @@ def process_time_based_output(results_dir,interval, request,temp_log,output_file
     # Output: None
     """
     print ("[%s] Starting process for post processing." % (util.get_current_time()))
-    process_tempfile(results_dir, interval, request, temp_log,
+    process_tempfile(results_dir, input_params, working_memory, temp_log,
                      instance_id, multiple_instance, queue)
     if multiple_instance:
       util.create_indicator_file(os.path.dirname(os.path.dirname(results_dir)),"done_processing", instance_id, "")
     # #Post Processing Function
-    post_process(temp_log,output_file,results_dir,interval,memlogfile,no_graph, concurrency)
+    post_process(temp_log,output_file,results_dir, memlogfile,no_graph, concurrency, input_params, working_memory)
     print ("[%s] Exiting process for post processing." % (util.get_current_time()))
     sys.exit(0)

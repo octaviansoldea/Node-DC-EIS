@@ -352,8 +352,8 @@ def clean_up_log(queue):
   queue.put(('PROCESS', log.name, file_cnt))
   log = None
 
-def main_entry(url, request_num, url_type, log_dir, interval,
-               run_mode, temp_log, accept_header, queue, http_headers, working_memory):
+def main_entry(url, request_num, url_type, log_dir, run_mode, temp_log,
+               accept_header, queue, http_headers, input_params, working_memory):
   """
   # Desc  : main entry function to determine the type of url - GET,POST or DELETE
   #         creates log file which captures per request data depending on the type of run.
@@ -373,7 +373,7 @@ def main_entry(url, request_num, url_type, log_dir, interval,
       log = open_log(log_dir)
       init = True
 
-    if time.time() - start_time > float(interval):
+    if time.time() - start_time > float(input_params["interval"]):
       old_log = log
       old_file_cnt = file_cnt
       file_cnt += 1

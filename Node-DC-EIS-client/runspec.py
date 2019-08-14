@@ -55,7 +55,6 @@ import util
 
 temp_log = "RTdata"
 request = 10000
-MT_interval = 100
 concurrency = 200
 total_urls = 100
 memstat_interval = 3
@@ -71,7 +70,6 @@ postid_index = 0
 keep_on_running = True # Initializing keep_on_running to True
 log =""
 log_dir =""
-interval = 10
 processing_complete = False
 instance_id = 0
 rundir = ""
@@ -220,6 +218,8 @@ def main():
   input_params = {}
   #default set to 1. Set it to 0 if ramp up rampdown phase is not required
   input_params["ramp"] = 1
+  input_params["MT_interval"] = 100
+  input_params["interval"] = 10
 
   working_memory = {}
   working_memory["urllist"] = []
@@ -316,8 +316,6 @@ def main():
         global server_port
         global server_root_endpoint
         global request
-        global MT_interval
-        global interval
         global concurrency
         global url_file
         global temp_log
@@ -349,7 +347,7 @@ def main():
         #parse config file to replace global variables with values in the file
         if "client_params" in json_data:
           if "MT_interval" in json_data["client_params"]:
-            MT_interval = int(json_data["client_params"]["MT_interval"])
+            input_params["MT_interval"] = int(json_data["client_params"]["MT_interval"])
 
           if "request" in json_data["client_params"]:
             request = int(json_data["client_params"]["request"])
@@ -361,7 +359,7 @@ def main():
             concurrency = json_data["client_params"]["concurrency"]
 
           if "interval" in json_data["client_params"]:
-            interval = int(json_data["client_params"]["interval"])
+            input_params["interval"] = int(json_data["client_params"]["interval"])
 
           if "rampup_rampdown" in json_data["client_params"]:
             working_memory["rampup_rampdown"] = int(json_data["client_params"]["rampup_rampdown"])
@@ -472,7 +470,7 @@ def main():
     no_graph = True
 
   if(options.MT_interval) :
-    MT_interval = int(options.MT_interval)
+    input_params["MT_interval"] = int(options.MT_interval)
 
   if(options.request) :
     request = options.request
@@ -481,7 +479,7 @@ def main():
     concurrency = options.concurrency
 
   if(options.interval) :
-    interval = int(options.interval)
+    input_params["interval"] = int(options.interval)
 
   if(options.rampup_rampdown) :
     working_memory["rampup_rampdown"] = options.rampup_rampdown
@@ -560,7 +558,7 @@ def run_printenv(log, input_params):
 
   print >> log, ('Server url is : %s' % server_url)
   if run_mode == 1:
-    print >> log, "Runtime interval:"+ str(MT_interval) +"  (Default value = 60s)"
+    print >> log, "Runtime interval:"+ str(input_params["MT_interval"]) +"  (Default value = 60s)"
   else:
     print >> log, "Requests    :"+ str(request) +"  (Default value = 10000)"
 
@@ -970,7 +968,6 @@ def send_request(input_params, working_memory):
   global log
   global after_run
   global log_dir
-  global interval
   global temp_log
   global output_file
 
@@ -1025,7 +1022,7 @@ def send_request(input_params, working_memory):
   log.close()
   return
 
-def execute_request(pool, queue, working_memory):
+def execute_request(pool, queue, input_params, working_memory):
     """
     # Desc  : Creates threadpool for concurrency, and sends concurrent requests
     #         to server for the input #requests or based on time interval.
@@ -1035,7 +1032,6 @@ def execute_request(pool, queue, working_memory):
     # Output: Generates per request details in a templog file
     """
     global after_run
-    global MT_interval
     global tot_get
     global tot_post
     global tot_del
@@ -1070,12 +1066,12 @@ def execute_request(pool, queue, working_memory):
             execute_request.request_index,
             url_type,
             log_dir,
-            interval,
             run_mode,
             temp_log,
             'text/html' if use_html else 'application/json',
             queue,
             http_headers,
+            input_params,
             working_memory
           ]
 
@@ -1106,13 +1102,11 @@ def timebased_run(pool, input_params, working_memory):
   # Output: Generates per request details in a templog file
   """
   global after_run
-  global MT_interval
   global tot_get
   global tot_post
   global tot_del
   global log
   global log_dir
-  global interval
   global temp_log
   global output_file
   global processing_complete
@@ -1123,8 +1117,8 @@ def timebased_run(pool, input_params, working_memory):
 
   #Spin Another Process to do processing of Data
   post_processing = Process(target=process_time_based_output,
-                            args=(log_dir, interval,
-                                  MT_interval, temp_log, output_file,
+                            args=(log_dir, input_params, working_memory,
+                                  temp_log, output_file,
                                   memlogfile, instance_id, multiple_instance,
                                   no_graph, queue, concurrency))
   post_processing.start()
@@ -1144,10 +1138,10 @@ def timebased_run(pool, input_params, working_memory):
     start = time.time()
     print("Entering Measuring time window : [%s]" % (util.get_current_time()))
     util.record_start_time()
-  print ("[%s] Started processing of requests with concurrency of [%d] for [%d] seconds" % (util.get_current_time(), int(concurrency), int(MT_interval)))
+  print ("[%s] Started processing of requests with concurrency of [%d] for [%d] seconds" % (util.get_current_time(), int(concurrency), int(input_params["MT_interval"])))
   if ramp:
           while(time.time()-start < int(rampup_rampdown)):
-              execute_request(pool, queue, working_memory)
+              execute_request(pool, queue, input_params, working_memory)
           print ("[%s] Exiting RampUp time window." %(util.get_current_time()))
           # phase = "MT"
           with working_memory["phase"].get_lock():
@@ -1155,8 +1149,8 @@ def timebased_run(pool, input_params, working_memory):
           util.record_start_time()
           start=time.time()
           print ("[%s] Entering Measuring time window." %(util.get_current_time()))
-          while(time.time()-start < int(MT_interval)):
-              execute_request(pool, queue, working_memory)
+          while(time.time()-start < int(input_params["MT_interval"])):
+              execute_request(pool, queue, input_params, working_memory)
           print ("[%s] Exiting Measuring time window." %(util.get_current_time()))
           util.record_end_time()
           # phase = "RD"
@@ -1166,15 +1160,15 @@ def timebased_run(pool, input_params, working_memory):
           start=time.time()
           print ("[%s] Entering RampDown time window." %(util.get_current_time()))
           while(time.time()-start < int(rampup_rampdown)):
-              execute_request(pool, queue, working_memory)
+              execute_request(pool, queue, input_params, working_memory)
           print ("[%s] Exiting RampDown time window." %(util.get_current_time()))
           # phase = "SD"
           with working_memory["phase"].get_lock():
             working_memory["phase"].value = 3
           print ("[%s] Entering ShutDown time window." %(util.get_current_time()))
   else:
-          while(time.time()-start < int(MT_interval)):
-              execute_request(pool, queue, working_memory)
+          while(time.time()-start < int(input_params["MT_interval"])):
+              execute_request(pool, queue, input_params, working_memory)
           print ("[%s] Exiting Measuring time window." %(util.get_current_time()))
           # phase = "SD"
           with working_memory["phase"].get_lock():
@@ -1232,7 +1226,7 @@ def requestBasedRun(pool, input_params, working_memory):
           print "Entering Measuring time window"
         if request_index == int(request):
           print "Exiting Measuring time window"
-      execute_request(pool, None, working_memory)
+      execute_request(pool, None, input_params, working_memory)
   #Wait for request threads to finish
   with working_memory["memlogind_counter"].get_lock():
     working_memory["memlogind_counter"].value += input_params["clients_number"]
@@ -1475,7 +1469,7 @@ def print_summary(input_params):
   print >> processed_file, "Requests Validation:"
 
   if run_mode == 1:
-    print >> processed_file, "Total runtime duration: " +str(int(MT_interval))
+    print >> processed_file, "Total runtime duration: " +str(int(input_params["MT_interval"]))
   else:
     print >> processed_file, "Total requests processed (MT): "+ str(request)
 
