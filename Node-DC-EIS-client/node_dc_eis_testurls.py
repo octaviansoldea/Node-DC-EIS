@@ -369,7 +369,7 @@ def main_entry(url, request_num, url_type, log_dir, run_mode, temp_log,
   global log
   if run_mode == 1:
     if not init:
-      start_time = time.time();
+      start_time = time.time()
       log = open_log(log_dir)
       init = True
 

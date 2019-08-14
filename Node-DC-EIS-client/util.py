@@ -13,9 +13,6 @@
 # limitations under the License.
 import time
 import os
-start_MT = 0 
-end_MT = 0
-MT_req = 0
 
 def get_current_time():
   """
@@ -26,24 +23,24 @@ def get_current_time():
   currentTime=time.strftime("%d-%m-%Y %H:%M:%S")
   return currentTime
 
-def record_start_time():
+def record_start_time(start_MT):
   """
   # Desc  : Function to record start time
   # Input : None
   # Output: Returns start time of measuring time phase
   """
-  global start_MT
-  start_MT = time.time()
+  with start_MT.get_lock():
+    start_MT.value = time.time()
   
 
-def record_end_time():
+def record_end_time(end_MT):
   """
   # Desc  : Function to record end time
   # Input : None
   # Output: Returns end time of measuring time phase
   """
-  global end_MT
-  end_MT = time.time()
+  with end_MT.get_lock():
+    end_MT.value = time.time()
   
 
 def printlog(log, working_memory,url_type,request_num,url,start,end,response_time,total_length):
@@ -57,16 +54,19 @@ def printlog(log, working_memory,url_type,request_num,url,start,end,response_tim
   #         response time of each request
   # Output: Returns per request details in a templog file
   """
-  global MT_req
-
   with working_memory["phase"].get_lock():
     phase_local = working_memory["phase"].value
 
+  start_MT_local = working_memory["start_MT"].value
+  end_MT_local = working_memory["end_MT"].value
+  MT_req = working_memory["MT_req"]
+
   if phase_local ==1:
-    if not ((start >= start_MT and end_MT == 0) or (end_MT > start_MT and end <= end_MT)):
+    if not ((start >= start_MT_local and end_MT_local == 0) or (end_MT_local > start_MT_local and end <= end_MT_local)):
       phase_local = 2
     else:
-      MT_req = MT_req + 1
+      with MT_req.get_lock():
+        MT_req.value += 1
   options = {0: "RU", 1: "MT", 2: "RD", 3: "SD"}
   phase_local = options[phase_local]
   log_str = phase_local+","+str(request_num)+","+str(url)+","+str(start)+","+str(end)+","+str(response_time)+","+str(total_length)+","+str(url_type)
@@ -97,25 +97,36 @@ def create_indicator_file(rundir,file_name,instance_id,string_towrite):
         ind_file.write(string_towrite)
 
 
-def calculate_throughput(log_dir,concurrency,cpuCount):
+def calculate_throughput(log_dir,concurrency,cpuCount, input_params, working_memory):
   """
   # Desc  : Function to calucalte throughput for each run
   # Input : run directory, concurrency ,the number of processes 
   # Output: generates a summary throughput file 
   """
-  throughput = MT_req/(end_MT-start_MT)
+  start_MT = working_memory["start_MT"]
+  end_MT = working_memory["end_MT"]
+  MT_req = working_memory["MT_req"]
+
+  with start_MT.get_lock():
+    start_MT_local = start_MT.value
+  with end_MT.get_lock():
+    end_MT_local = end_MT.value
+  with MT_req.get_lock():
+    MT_req_local = MT_req.value
+
+  throughput = MT_req_local/(end_MT_local-start_MT_local)
   throughput = round(throughput,2)
   try:
-    log = open(os.path.join(log_dir,"throughput_info.txt"), "w")
+    fp_throughput = open(os.path.join(log_dir,"throughput_info.txt"), "w")
   except IOError as e:
     print("Error: %s File not found throughput_info.txt")
     return None
-  print >> log,"Concurrency is:"+str(concurrency)
-  print >> log,"Number of processess:"+str(cpuCount)
-  print >> log,"Measuring time window start time is:"+str(start_MT) 
-  print >> log,"Measuring time end time is:"+str(end_MT)
-  print >> log,"Elapsed time is:"+str(end_MT-start_MT)
-  print >> log,"Total measuring time requests:"+str(MT_req)
-  print >> log,"Throughput is:"+str(throughput)
-  log.close()
+  print >> fp_throughput,"Concurrency is:"+str(concurrency)
+  print >> fp_throughput,"Number of processess:"+str(cpuCount)
+  print >> fp_throughput,"Measuring time window start time is:"+str(start_MT_local)
+  print >> fp_throughput,"Measuring time end time is:"+str(end_MT_local)
+  print >> fp_throughput,"Elapsed time is:"+str(end_MT_local-start_MT_local)
+  print >> fp_throughput,"Total measuring time requests:"+str(MT_req_local)
+  print >> fp_throughput,"Throughput is:"+str(throughput)
+  fp_throughput.close()
 

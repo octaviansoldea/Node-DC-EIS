@@ -1007,6 +1007,9 @@ def send_request(input_params, working_memory):
     1 "SD"
   """
   working_memory["phase"] = Value('i', 1)
+  working_memory["start_MT"] = Value('d', 0.0)
+  working_memory["end_MT"] = Value('d', 0.0)
+  working_memory["MT_req"] = Value('i', 0)
 
   ## Start time based run
   if run_mode == 1:
@@ -1137,7 +1140,7 @@ def timebased_run(pool, input_params, working_memory):
       phase.value = 1
     start = time.time()
     print("Entering Measuring time window : [%s]" % (util.get_current_time()))
-    util.record_start_time()
+    util.record_start_time(working_memory["start_MT"])
   print ("[%s] Started processing of requests with concurrency of [%d] for [%d] seconds" % (util.get_current_time(), int(concurrency), int(input_params["MT_interval"])))
   if ramp:
           while(time.time()-start < int(rampup_rampdown)):
@@ -1146,17 +1149,17 @@ def timebased_run(pool, input_params, working_memory):
           # phase = "MT"
           with working_memory["phase"].get_lock():
             working_memory["phase"].value = 1
-          util.record_start_time()
+          util.record_start_time(working_memory["start_MT"])
           start=time.time()
           print ("[%s] Entering Measuring time window." %(util.get_current_time()))
           while(time.time()-start < int(input_params["MT_interval"])):
               execute_request(pool, queue, input_params, working_memory)
           print ("[%s] Exiting Measuring time window." %(util.get_current_time()))
-          util.record_end_time()
+          util.record_end_time(working_memory["end_MT"])
           # phase = "RD"
           with working_memory["phase"].get_lock():
             working_memory["phase"].value = 2
-          util.calculate_throughput(log_dir,concurrency,cpuCount)
+          util.calculate_throughput(log_dir,concurrency,cpuCount, input_params, working_memory)
           start=time.time()
           print ("[%s] Entering RampDown time window." %(util.get_current_time()))
           while(time.time()-start < int(rampup_rampdown)):
