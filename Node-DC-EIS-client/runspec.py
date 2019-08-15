@@ -1037,7 +1037,6 @@ def execute_request(pool, queue, input_params, working_memory):
     # Input : threadpool with concurrency number of threads
     # Output: Generates per request details in a templog file
     """
-    global after_run
     global log_dir
 
     urllist = working_memory["urllist"]
@@ -1108,7 +1107,6 @@ def timebased_run(pool, input_params, working_memory):
   # Input : threadpool with concurrency number of threads
   # Output: Generates per request details in a templog file
   """
-  global after_run
   global log
   global log_dir
   global temp_log
@@ -1197,7 +1195,6 @@ def requestBasedRun(pool, input_params, working_memory):
   # Input : threadpool with concurrency number of threads
   # Output: Generates per request details in a templog file
   """
-  global after_run
 
   if input_params["clients_number"] != 1:
     raise NotImplementedError('There is no support in requestBasedRun for clients_number != 1')
